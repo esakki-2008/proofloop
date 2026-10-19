@@ -69,6 +69,13 @@ npm test
 npm run dev
 ```
 
+### Phase 1 Known Limitations & Operational Notes
+
+- **Simulated Timeout Handling**: Timeout behavior (`simulated_timeout_test_ids` in `backend/app/verifier.py`) is currently a deterministic simulation used to verify that timed-out checks propagate as `UNKNOWN` rather than `PASS`; it does not enforce a real wall-clock or subprocess execution timeout.
+- **Single Slot for Custom Runs (`custom_run`)**: Executing a custom verification run via `POST /api/verify` stores its report under the `custom_run` key in the ledger, overwriting any previous `custom_run` entry.
+- **Local JSON File Persistence**: Verification runs are persisted to `backend/app/data/evidence_ledger.json` on the local filesystem. This persistence mechanism must be reviewed before deploying to an ephemeral or read-only host (where disk writes may fail or reset across restarts).
+- **Fixed Implementations & Deferred Integrations**: Phase 1 evaluates only the predefined Python grading implementations and fixed test fixtures (`TC-01`..`TC-08`). External AI APIs and Gnani AI voice integration remain deferred.
+
 ## Project repository
 
 https://github.com/esakki-2008/proofloop
