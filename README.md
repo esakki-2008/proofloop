@@ -28,10 +28,46 @@ The first version must use fixed sample implementations and controlled fixtures.
 
 - [x] Repository created
 - [x] Initial project brief
-- [ ] Verification engine and sample task
-- [ ] Evidence Ledger UI
+- [x] Verification engine and sample task
+- [x] Evidence Ledger UI
 - [ ] Gnani AI voice integration
 - [ ] End-to-end validation and demo
+
+## Phase 1 Setup & Usage
+
+### Repository structure
+
+- `backend/` — FastAPI verification service, predefined grading implementations (`grade_student_correct` and `grade_student_faulty_average`), deterministic verification runner, JSON evidence ledger (`backend/app/data/evidence_ledger.json`), and `pytest` test suite.
+- `frontend/` — React + TypeScript + Vite Evidence Ledger UI and `vitest` test suite.
+- `docs/MVP_SCOPE.md` — Phase 1 scope, required behavior, and acceptance criteria.
+
+### 1. Backend setup & tests (Python + FastAPI + pytest)
+
+```bash
+# Install Python dependencies
+pip install -r backend/requirements.txt
+
+# Run deterministic backend tests (25 tests covering grading, verifier, and API security)
+pytest -v
+
+# Start the FastAPI backend server on port 8000
+uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+```
+
+### 2. Frontend setup & tests (React + TypeScript + Vite)
+
+```bash
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Run frontend unit tests
+npm test
+
+# Start the Vite development server on port 5173 (proxies /api to http://127.0.0.1:8000)
+npm run dev
+```
 
 ## Project repository
 

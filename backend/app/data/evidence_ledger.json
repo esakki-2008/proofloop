@@ -1,0 +1,1183 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-10-19T10:55:38.981775+00:00",
+  "epistemic_principle": "A passing test suite is execution evidence for the specific checks run, never a proof of universal correctness. Missing, timed-out, or unexecuted checks are marked UNKNOWN and never assumed to pass.",
+  "requirements_catalog": [
+    {
+      "requirement_id": "REQ-01",
+      "title": "Minimum Per-Subject Threshold (Every Subject >= 40)",
+      "statement": "A student passes only when every individual subject mark is at least 40. Any single subject mark below 40 must result in failure (False), even when the overall arithmetic average across subjects is well above 40.",
+      "required_test_ids": [
+        "TC-01",
+        "TC-02",
+        "TC-06"
+      ]
+    },
+    {
+      "requirement_id": "REQ-02",
+      "title": "Boundary Precision Around Passing Mark (39 vs 40)",
+      "statement": "Boundary values at 39 (highest integer failing mark) and 40 (lowest passing mark) must be evaluated accurately across uniform and mixed subject mark combinations.",
+      "required_test_ids": [
+        "TC-03",
+        "TC-04",
+        "TC-05",
+        "TC-07"
+      ]
+    },
+    {
+      "requirement_id": "REQ-03",
+      "title": "Empty Marks Input Rejection",
+      "statement": "An empty marks list ([]) must raise a ValueError rather than vacuously returning True (all([]) == True) or crashing with an unhandled ZeroDivisionError.",
+      "required_test_ids": [
+        "TC-08"
+      ]
+    }
+  ],
+  "test_cases_catalog": [
+    {
+      "test_id": "TC-01",
+      "requirement_id": "REQ-01",
+      "name": "Standard passing marks above threshold",
+      "category": "Standard",
+      "input_marks": [
+        40.0,
+        50.0,
+        60.0
+      ],
+      "expected_return": true,
+      "expected_exception": null,
+      "expected_output_display": "True (PASS)",
+      "design_note": "All subject marks are >= 40 (min = 40, average = 50.00). Student should pass."
+    },
+    {
+      "test_id": "TC-02",
+      "requirement_id": "REQ-01",
+      "name": "High average with single failing subject [39, 80, 90]",
+      "category": "Fault-Exposing",
+      "input_marks": [
+        39.0,
+        80.0,
+        90.0
+      ],
+      "expected_return": false,
+      "expected_exception": null,
+      "expected_output_display": "False (FAIL)",
+      "design_note": "Critical counterexample from MVP scope: average is 69.67 (>= 40), but subject 1 is 39 (< 40). Exposes average-only implementations."
+    },
+    {
+      "test_id": "TC-03",
+      "requirement_id": "REQ-02",
+      "name": "Exact lower passing boundary across all subjects [40, 40, 40]",
+      "category": "Boundary",
+      "input_marks": [
+        40.0,
+        40.0,
+        40.0
+      ],
+      "expected_return": true,
+      "expected_exception": null,
+      "expected_output_display": "True (PASS)",
+      "design_note": "Every subject mark sits on the exact passing boundary of 40 (min = 40, average = 40.00)."
+    },
+    {
+      "test_id": "TC-04",
+      "requirement_id": "REQ-02",
+      "name": "Just below passing boundary across all subjects [39, 39, 39]",
+      "category": "Boundary",
+      "input_marks": [
+        39.0,
+        39.0,
+        39.0
+      ],
+      "expected_return": false,
+      "expected_exception": null,
+      "expected_output_display": "False (FAIL)",
+      "design_note": "Every subject mark is 39, one point below the passing threshold (min = 39, average = 39.00)."
+    },
+    {
+      "test_id": "TC-05",
+      "requirement_id": "REQ-02",
+      "name": "Boundary straddle with exact 40.0 average [39, 40, 41]",
+      "category": "Boundary / Fault-Exposing",
+      "input_marks": [
+        39.0,
+        40.0,
+        41.0
+      ],
+      "expected_return": false,
+      "expected_exception": null,
+      "expected_output_display": "False (FAIL)",
+      "design_note": "Tests boundary values 39 and 40 simultaneously while keeping the arithmetic average at exactly 40.00. Subject 1 (39) must cause a failure."
+    },
+    {
+      "test_id": "TC-06",
+      "requirement_id": "REQ-01",
+      "name": "Trailing subject failure with high overall average [95, 88, 39]",
+      "category": "Fault-Exposing",
+      "input_marks": [
+        95.0,
+        88.0,
+        39.0
+      ],
+      "expected_return": false,
+      "expected_exception": null,
+      "expected_output_display": "False (FAIL)",
+      "design_note": "Ensures all positions in the marks list are checked. Average is 74.00 (>= 40), but the final subject mark is 39 (< 40)."
+    },
+    {
+      "test_id": "TC-07",
+      "requirement_id": "REQ-02",
+      "name": "Single subject at exact threshold with high peers [40, 100, 100]",
+      "category": "Boundary",
+      "input_marks": [
+        40.0,
+        100.0,
+        100.0
+      ],
+      "expected_return": true,
+      "expected_exception": null,
+      "expected_output_display": "True (PASS)",
+      "design_note": "Verifies that a mark of exactly 40 is treated as inclusive (>= 40, not > 40)."
+    },
+    {
+      "test_id": "TC-08",
+      "requirement_id": "REQ-03",
+      "name": "Empty subject marks list []",
+      "category": "Validation",
+      "input_marks": [],
+      "expected_return": null,
+      "expected_exception": "ValueError",
+      "expected_output_display": "Exception: ValueError",
+      "design_note": "Guards against Python's vacuous truth (`all([]) == True`) and unhandled `ZeroDivisionError` when computing an average on empty input."
+    }
+  ],
+  "runs": {
+    "correct_full": {
+      "run_id": "correct_full",
+      "run_label": "Correct Implementation \u2014 Full Suite (All 8 Checks)",
+      "timestamp": "2026-10-19T10:55:38.981308+00:00",
+      "implementation_id": "correct_all_subjects",
+      "implementation_name": "Correct Implementation (Every Subject >= 40)",
+      "implementation_short_label": "grade_student_correct",
+      "implementation_description": "Validates non-empty numeric marks and checks that every individual subject mark is at least 40.",
+      "source_code": "def grade_student_correct(marks: Sequence[int | float]) -> bool:\n    \"\"\"Correct implementation: a student passes iff every subject mark is at least 40.\n\n    Args:\n        marks: Non-empty sequence of subject marks.\n\n    Returns:\n        True if the student passes (all marks >= 40), False otherwise.\n\n    Raises:\n        ValueError: If the marks sequence is empty.\n        TypeError: If any mark is not an int or float (excluding booleans).\n    \"\"\"\n    if not isinstance(marks, (list, tuple)):\n        raise TypeError(\"Marks must be provided as a list or tuple.\")\n    if len(marks) == 0:\n        raise ValueError(\"Subject marks list must not be empty.\")\n    for mark in marks:\n        if isinstance(mark, bool) or not isinstance(mark, (int, float)):\n            raise TypeError(f\"Each subject mark must be numeric; got {type(mark).__name__}.\")\n    return all(mark >= PASS_MARK_THRESHOLD for mark in marks)\n",
+      "selected_test_ids": [
+        "TC-01",
+        "TC-02",
+        "TC-03",
+        "TC-04",
+        "TC-05",
+        "TC-06",
+        "TC-07",
+        "TC-08"
+      ],
+      "overall_status": "PASS",
+      "counts": {
+        "total_checks": 8,
+        "executed_checks": 8,
+        "passed_checks": 8,
+        "failed_checks": 0,
+        "unknown_checks": 0,
+        "total_requirements": 3,
+        "passed_requirements": 3,
+        "failed_requirements": 0,
+        "unknown_requirements": 0
+      },
+      "requirements": [
+        {
+          "requirement_id": "REQ-01",
+          "title": "Minimum Per-Subject Threshold (Every Subject >= 40)",
+          "statement": "A student passes only when every individual subject mark is at least 40. Any single subject mark below 40 must result in failure (False), even when the overall arithmetic average across subjects is well above 40.",
+          "required_test_ids": [
+            "TC-01",
+            "TC-02",
+            "TC-06"
+          ],
+          "executed_test_ids": [
+            "TC-01",
+            "TC-02",
+            "TC-06"
+          ],
+          "passed_test_ids": [
+            "TC-01",
+            "TC-02",
+            "TC-06"
+          ],
+          "failed_test_ids": [],
+          "unknown_test_ids": [],
+          "status": "PASS",
+          "evidence_summary": "PASS: All 3 required check(s) (TC-01, TC-02, TC-06) executed and matched expected outputs."
+        },
+        {
+          "requirement_id": "REQ-02",
+          "title": "Boundary Precision Around Passing Mark (39 vs 40)",
+          "statement": "Boundary values at 39 (highest integer failing mark) and 40 (lowest passing mark) must be evaluated accurately across uniform and mixed subject mark combinations.",
+          "required_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-05",
+            "TC-07"
+          ],
+          "executed_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-05",
+            "TC-07"
+          ],
+          "passed_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-05",
+            "TC-07"
+          ],
+          "failed_test_ids": [],
+          "unknown_test_ids": [],
+          "status": "PASS",
+          "evidence_summary": "PASS: All 4 required check(s) (TC-03, TC-04, TC-05, TC-07) executed and matched expected outputs."
+        },
+        {
+          "requirement_id": "REQ-03",
+          "title": "Empty Marks Input Rejection",
+          "statement": "An empty marks list ([]) must raise a ValueError rather than vacuously returning True (all([]) == True) or crashing with an unhandled ZeroDivisionError.",
+          "required_test_ids": [
+            "TC-08"
+          ],
+          "executed_test_ids": [
+            "TC-08"
+          ],
+          "passed_test_ids": [
+            "TC-08"
+          ],
+          "failed_test_ids": [],
+          "unknown_test_ids": [],
+          "status": "PASS",
+          "evidence_summary": "PASS: All 1 required check(s) (TC-08) executed and matched expected outputs."
+        }
+      ],
+      "evidence": [
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-01",
+          "test_name": "Standard passing marks above threshold",
+          "category": "Standard",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            40.0,
+            50.0,
+            60.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0036
+        },
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-02",
+          "test_name": "High average with single failing subject [39, 80, 90]",
+          "category": "Fault-Exposing",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            39.0,
+            80.0,
+            90.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "False (FAIL)",
+          "actual_return": false,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0034
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-03",
+          "test_name": "Exact lower passing boundary across all subjects [40, 40, 40]",
+          "category": "Boundary",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            40.0,
+            40.0,
+            40.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0014
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-04",
+          "test_name": "Just below passing boundary across all subjects [39, 39, 39]",
+          "category": "Boundary",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            39.0,
+            39.0,
+            39.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "False (FAIL)",
+          "actual_return": false,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0015
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-05",
+          "test_name": "Boundary straddle with exact 40.0 average [39, 40, 41]",
+          "category": "Boundary / Fault-Exposing",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            39.0,
+            40.0,
+            41.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "False (FAIL)",
+          "actual_return": false,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0016
+        },
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-06",
+          "test_name": "Trailing subject failure with high overall average [95, 88, 39]",
+          "category": "Fault-Exposing",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            95.0,
+            88.0,
+            39.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "False (FAIL)",
+          "actual_return": false,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0013
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-07",
+          "test_name": "Single subject at exact threshold with high peers [40, 100, 100]",
+          "category": "Boundary",
+          "implementation_id": "correct_all_subjects",
+          "input": [
+            40.0,
+            100.0,
+            100.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0011
+        },
+        {
+          "requirement_id": "REQ-03",
+          "test_id": "TC-08",
+          "test_name": "Empty subject marks list []",
+          "category": "Validation",
+          "implementation_id": "correct_all_subjects",
+          "input": [],
+          "expected_output": "Exception: ValueError",
+          "expected_return": null,
+          "expected_exception": "ValueError",
+          "actual_output": "Exception: ValueError (Subject marks list must not be empty.)",
+          "actual_return": null,
+          "exception_raised": "ValueError",
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0049
+        }
+      ],
+      "explanations": [
+        {
+          "test_id": "TC-01",
+          "requirement_id": "REQ-01",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=40.0, max=60.0, avg=50.00, marks_below_40=[]",
+          "design_note": "All subject marks are >= 40 (min = 40, average = 50.00). Student should pass.",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 50.0, 60.0] (count=3, min=40.0, max=60.0, avg=50.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-02",
+          "requirement_id": "REQ-01",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=39.0, max=90.0, avg=69.67, marks_below_40=[39.0]",
+          "design_note": "Critical counterexample from MVP scope: average is 69.67 (>= 40), but subject 1 is 39 (< 40). Exposes average-only implementations.",
+          "diagnostic_explanation": "Observed output False (FAIL) matches expected False (FAIL) for input [39.0, 80.0, 90.0] (count=3, min=39.0, max=90.0, avg=69.67, marks_below_40=[39.0])."
+        },
+        {
+          "test_id": "TC-03",
+          "requirement_id": "REQ-02",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=40.0, max=40.0, avg=40.00, marks_below_40=[]",
+          "design_note": "Every subject mark sits on the exact passing boundary of 40 (min = 40, average = 40.00).",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 40.0, 40.0] (count=3, min=40.0, max=40.0, avg=40.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-04",
+          "requirement_id": "REQ-02",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=39.0, max=39.0, avg=39.00, marks_below_40=[39.0, 39.0, 39.0]",
+          "design_note": "Every subject mark is 39, one point below the passing threshold (min = 39, average = 39.00).",
+          "diagnostic_explanation": "Observed output False (FAIL) matches expected False (FAIL) for input [39.0, 39.0, 39.0] (count=3, min=39.0, max=39.0, avg=39.00, marks_below_40=[39.0, 39.0, 39.0])."
+        },
+        {
+          "test_id": "TC-05",
+          "requirement_id": "REQ-02",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=39.0, max=41.0, avg=40.00, marks_below_40=[39.0]",
+          "design_note": "Tests boundary values 39 and 40 simultaneously while keeping the arithmetic average at exactly 40.00. Subject 1 (39) must cause a failure.",
+          "diagnostic_explanation": "Observed output False (FAIL) matches expected False (FAIL) for input [39.0, 40.0, 41.0] (count=3, min=39.0, max=41.0, avg=40.00, marks_below_40=[39.0])."
+        },
+        {
+          "test_id": "TC-06",
+          "requirement_id": "REQ-01",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=39.0, max=95.0, avg=74.00, marks_below_40=[39.0]",
+          "design_note": "Ensures all positions in the marks list are checked. Average is 74.00 (>= 40), but the final subject mark is 39 (< 40).",
+          "diagnostic_explanation": "Observed output False (FAIL) matches expected False (FAIL) for input [95.0, 88.0, 39.0] (count=3, min=39.0, max=95.0, avg=74.00, marks_below_40=[39.0])."
+        },
+        {
+          "test_id": "TC-07",
+          "requirement_id": "REQ-02",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=3, min=40.0, max=100.0, avg=80.00, marks_below_40=[]",
+          "design_note": "Verifies that a mark of exactly 40 is treated as inclusive (>= 40, not > 40).",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 100.0, 100.0] (count=3, min=40.0, max=100.0, avg=80.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-08",
+          "requirement_id": "REQ-03",
+          "implementation_id": "correct_all_subjects",
+          "input_metrics": "count=0 (empty list)",
+          "design_note": "Guards against Python's vacuous truth (`all([]) == True`) and unhandled `ZeroDivisionError` when computing an average on empty input.",
+          "diagnostic_explanation": "Implementation raised expected ValueError on input []."
+        }
+      ],
+      "scope_disclaimer": "A passing test suite is execution evidence for the specific checks run, never a proof of universal correctness. Missing, timed-out, or unexecuted checks are marked UNKNOWN and never assumed to pass."
+    },
+    "faulty_full": {
+      "run_id": "faulty_full",
+      "run_label": "Faulty Average-Only Implementation \u2014 Full Suite (Exposes Faults)",
+      "timestamp": "2026-10-19T10:55:38.981601+00:00",
+      "implementation_id": "faulty_average_only",
+      "implementation_name": "Faulty Implementation (Average >= 40 Only)",
+      "implementation_short_label": "grade_student_faulty_average",
+      "implementation_description": "Intentionally faulty baseline that checks only whether the arithmetic mean of marks is at least 40, ignoring individual subject failures.",
+      "source_code": "def grade_student_faulty_average(marks: Sequence[int | float]) -> bool:\n    \"\"\"Intentionally faulty implementation: checks only whether the average mark is >= 40.\n\n    Fault exposed by PROOFLOOP:\n        A student with marks [39, 80, 90] has an average of 69.67 (>= 40) and is\n        incorrectly marked as passing (True), even though the first subject mark (39)\n        is below the minimum threshold of 40.\n    \"\"\"\n    return (sum(marks) / len(marks)) >= PASS_MARK_THRESHOLD\n",
+      "selected_test_ids": [
+        "TC-01",
+        "TC-02",
+        "TC-03",
+        "TC-04",
+        "TC-05",
+        "TC-06",
+        "TC-07",
+        "TC-08"
+      ],
+      "overall_status": "FAIL",
+      "counts": {
+        "total_checks": 8,
+        "executed_checks": 8,
+        "passed_checks": 4,
+        "failed_checks": 4,
+        "unknown_checks": 0,
+        "total_requirements": 3,
+        "passed_requirements": 0,
+        "failed_requirements": 3,
+        "unknown_requirements": 0
+      },
+      "requirements": [
+        {
+          "requirement_id": "REQ-01",
+          "title": "Minimum Per-Subject Threshold (Every Subject >= 40)",
+          "statement": "A student passes only when every individual subject mark is at least 40. Any single subject mark below 40 must result in failure (False), even when the overall arithmetic average across subjects is well above 40.",
+          "required_test_ids": [
+            "TC-01",
+            "TC-02",
+            "TC-06"
+          ],
+          "executed_test_ids": [
+            "TC-01",
+            "TC-02",
+            "TC-06"
+          ],
+          "passed_test_ids": [
+            "TC-01"
+          ],
+          "failed_test_ids": [
+            "TC-02",
+            "TC-06"
+          ],
+          "unknown_test_ids": [],
+          "status": "FAIL",
+          "evidence_summary": "FAIL: 2 of 3 required check(s) failed (TC-02, TC-06)."
+        },
+        {
+          "requirement_id": "REQ-02",
+          "title": "Boundary Precision Around Passing Mark (39 vs 40)",
+          "statement": "Boundary values at 39 (highest integer failing mark) and 40 (lowest passing mark) must be evaluated accurately across uniform and mixed subject mark combinations.",
+          "required_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-05",
+            "TC-07"
+          ],
+          "executed_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-05",
+            "TC-07"
+          ],
+          "passed_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-07"
+          ],
+          "failed_test_ids": [
+            "TC-05"
+          ],
+          "unknown_test_ids": [],
+          "status": "FAIL",
+          "evidence_summary": "FAIL: 1 of 4 required check(s) failed (TC-05)."
+        },
+        {
+          "requirement_id": "REQ-03",
+          "title": "Empty Marks Input Rejection",
+          "statement": "An empty marks list ([]) must raise a ValueError rather than vacuously returning True (all([]) == True) or crashing with an unhandled ZeroDivisionError.",
+          "required_test_ids": [
+            "TC-08"
+          ],
+          "executed_test_ids": [
+            "TC-08"
+          ],
+          "passed_test_ids": [],
+          "failed_test_ids": [
+            "TC-08"
+          ],
+          "unknown_test_ids": [],
+          "status": "FAIL",
+          "evidence_summary": "FAIL: 1 of 1 required check(s) failed (TC-08)."
+        }
+      ],
+      "evidence": [
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-01",
+          "test_name": "Standard passing marks above threshold",
+          "category": "Standard",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            40.0,
+            50.0,
+            60.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.001
+        },
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-02",
+          "test_name": "High average with single failing subject [39, 80, 90]",
+          "category": "Fault-Exposing",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            39.0,
+            80.0,
+            90.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "FAIL",
+          "execution_time_ms": 0.0005
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-03",
+          "test_name": "Exact lower passing boundary across all subjects [40, 40, 40]",
+          "category": "Boundary",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            40.0,
+            40.0,
+            40.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0004
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-04",
+          "test_name": "Just below passing boundary across all subjects [39, 39, 39]",
+          "category": "Boundary",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            39.0,
+            39.0,
+            39.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "False (FAIL)",
+          "actual_return": false,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0007
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-05",
+          "test_name": "Boundary straddle with exact 40.0 average [39, 40, 41]",
+          "category": "Boundary / Fault-Exposing",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            39.0,
+            40.0,
+            41.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "FAIL",
+          "execution_time_ms": 0.0005
+        },
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-06",
+          "test_name": "Trailing subject failure with high overall average [95, 88, 39]",
+          "category": "Fault-Exposing",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            95.0,
+            88.0,
+            39.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "FAIL",
+          "execution_time_ms": 0.0004
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-07",
+          "test_name": "Single subject at exact threshold with high peers [40, 100, 100]",
+          "category": "Boundary",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            40.0,
+            100.0,
+            100.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0009
+        },
+        {
+          "requirement_id": "REQ-03",
+          "test_id": "TC-08",
+          "test_name": "Empty subject marks list []",
+          "category": "Validation",
+          "implementation_id": "faulty_average_only",
+          "input": [],
+          "expected_output": "Exception: ValueError",
+          "expected_return": null,
+          "expected_exception": "ValueError",
+          "actual_output": "Exception: ZeroDivisionError (division by zero)",
+          "actual_return": null,
+          "exception_raised": "ZeroDivisionError",
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "FAIL",
+          "execution_time_ms": 0.0048
+        }
+      ],
+      "explanations": [
+        {
+          "test_id": "TC-01",
+          "requirement_id": "REQ-01",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=40.0, max=60.0, avg=50.00, marks_below_40=[]",
+          "design_note": "All subject marks are >= 40 (min = 40, average = 50.00). Student should pass.",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 50.0, 60.0] (count=3, min=40.0, max=60.0, avg=50.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-02",
+          "requirement_id": "REQ-01",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=90.0, avg=69.67, marks_below_40=[39.0]",
+          "design_note": "Critical counterexample from MVP scope: average is 69.67 (>= 40), but subject 1 is 39 (< 40). Exposes average-only implementations.",
+          "diagnostic_explanation": "Discrepancy detected: expected False (FAIL) but implementation produced True (PASS) for input [39.0, 80.0, 90.0] (count=3, min=39.0, max=90.0, avg=69.67, marks_below_40=[39.0])."
+        },
+        {
+          "test_id": "TC-03",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=40.0, max=40.0, avg=40.00, marks_below_40=[]",
+          "design_note": "Every subject mark sits on the exact passing boundary of 40 (min = 40, average = 40.00).",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 40.0, 40.0] (count=3, min=40.0, max=40.0, avg=40.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-04",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=39.0, avg=39.00, marks_below_40=[39.0, 39.0, 39.0]",
+          "design_note": "Every subject mark is 39, one point below the passing threshold (min = 39, average = 39.00).",
+          "diagnostic_explanation": "Observed output False (FAIL) matches expected False (FAIL) for input [39.0, 39.0, 39.0] (count=3, min=39.0, max=39.0, avg=39.00, marks_below_40=[39.0, 39.0, 39.0])."
+        },
+        {
+          "test_id": "TC-05",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=41.0, avg=40.00, marks_below_40=[39.0]",
+          "design_note": "Tests boundary values 39 and 40 simultaneously while keeping the arithmetic average at exactly 40.00. Subject 1 (39) must cause a failure.",
+          "diagnostic_explanation": "Discrepancy detected: expected False (FAIL) but implementation produced True (PASS) for input [39.0, 40.0, 41.0] (count=3, min=39.0, max=41.0, avg=40.00, marks_below_40=[39.0])."
+        },
+        {
+          "test_id": "TC-06",
+          "requirement_id": "REQ-01",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=95.0, avg=74.00, marks_below_40=[39.0]",
+          "design_note": "Ensures all positions in the marks list are checked. Average is 74.00 (>= 40), but the final subject mark is 39 (< 40).",
+          "diagnostic_explanation": "Discrepancy detected: expected False (FAIL) but implementation produced True (PASS) for input [95.0, 88.0, 39.0] (count=3, min=39.0, max=95.0, avg=74.00, marks_below_40=[39.0])."
+        },
+        {
+          "test_id": "TC-07",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=40.0, max=100.0, avg=80.00, marks_below_40=[]",
+          "design_note": "Verifies that a mark of exactly 40 is treated as inclusive (>= 40, not > 40).",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 100.0, 100.0] (count=3, min=40.0, max=100.0, avg=80.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-08",
+          "requirement_id": "REQ-03",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=0 (empty list)",
+          "design_note": "Guards against Python's vacuous truth (`all([]) == True`) and unhandled `ZeroDivisionError` when computing an average on empty input.",
+          "diagnostic_explanation": "Expected exception ValueError on input [], but observed Exception: ZeroDivisionError (division by zero)."
+        }
+      ],
+      "scope_disclaimer": "A passing test suite is execution evidence for the specific checks run, never a proof of universal correctness. Missing, timed-out, or unexecuted checks are marked UNKNOWN and never assumed to pass."
+    },
+    "incomplete_coverage_demo": {
+      "run_id": "incomplete_coverage_demo",
+      "run_label": "Incomplete Coverage Run \u2014 Unexecuted Counterexamples (Demonstrates UNKNOWN)",
+      "timestamp": "2026-10-19T10:55:38.981762+00:00",
+      "implementation_id": "faulty_average_only",
+      "implementation_name": "Faulty Implementation (Average >= 40 Only)",
+      "implementation_short_label": "grade_student_faulty_average",
+      "implementation_description": "Intentionally faulty baseline that checks only whether the arithmetic mean of marks is at least 40, ignoring individual subject failures.",
+      "source_code": "def grade_student_faulty_average(marks: Sequence[int | float]) -> bool:\n    \"\"\"Intentionally faulty implementation: checks only whether the average mark is >= 40.\n\n    Fault exposed by PROOFLOOP:\n        A student with marks [39, 80, 90] has an average of 69.67 (>= 40) and is\n        incorrectly marked as passing (True), even though the first subject mark (39)\n        is below the minimum threshold of 40.\n    \"\"\"\n    return (sum(marks) / len(marks)) >= PASS_MARK_THRESHOLD\n",
+      "selected_test_ids": [
+        "TC-01",
+        "TC-03",
+        "TC-04",
+        "TC-07"
+      ],
+      "overall_status": "UNKNOWN",
+      "counts": {
+        "total_checks": 8,
+        "executed_checks": 4,
+        "passed_checks": 4,
+        "failed_checks": 0,
+        "unknown_checks": 4,
+        "total_requirements": 3,
+        "passed_requirements": 0,
+        "failed_requirements": 0,
+        "unknown_requirements": 3
+      },
+      "requirements": [
+        {
+          "requirement_id": "REQ-01",
+          "title": "Minimum Per-Subject Threshold (Every Subject >= 40)",
+          "statement": "A student passes only when every individual subject mark is at least 40. Any single subject mark below 40 must result in failure (False), even when the overall arithmetic average across subjects is well above 40.",
+          "required_test_ids": [
+            "TC-01",
+            "TC-02",
+            "TC-06"
+          ],
+          "executed_test_ids": [
+            "TC-01"
+          ],
+          "passed_test_ids": [
+            "TC-01"
+          ],
+          "failed_test_ids": [],
+          "unknown_test_ids": [
+            "TC-02",
+            "TC-06"
+          ],
+          "status": "UNKNOWN",
+          "evidence_summary": "UNKNOWN: Coverage incomplete \u2014 1 of 3 required check(s) executed; unexecuted/missing: TC-02, TC-06."
+        },
+        {
+          "requirement_id": "REQ-02",
+          "title": "Boundary Precision Around Passing Mark (39 vs 40)",
+          "statement": "Boundary values at 39 (highest integer failing mark) and 40 (lowest passing mark) must be evaluated accurately across uniform and mixed subject mark combinations.",
+          "required_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-05",
+            "TC-07"
+          ],
+          "executed_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-07"
+          ],
+          "passed_test_ids": [
+            "TC-03",
+            "TC-04",
+            "TC-07"
+          ],
+          "failed_test_ids": [],
+          "unknown_test_ids": [
+            "TC-05"
+          ],
+          "status": "UNKNOWN",
+          "evidence_summary": "UNKNOWN: Coverage incomplete \u2014 3 of 4 required check(s) executed; unexecuted/missing: TC-05."
+        },
+        {
+          "requirement_id": "REQ-03",
+          "title": "Empty Marks Input Rejection",
+          "statement": "An empty marks list ([]) must raise a ValueError rather than vacuously returning True (all([]) == True) or crashing with an unhandled ZeroDivisionError.",
+          "required_test_ids": [
+            "TC-08"
+          ],
+          "executed_test_ids": [],
+          "passed_test_ids": [],
+          "failed_test_ids": [],
+          "unknown_test_ids": [
+            "TC-08"
+          ],
+          "status": "UNKNOWN",
+          "evidence_summary": "UNKNOWN: Coverage incomplete \u2014 0 of 1 required check(s) executed; unexecuted/missing: TC-08."
+        }
+      ],
+      "evidence": [
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-01",
+          "test_name": "Standard passing marks above threshold",
+          "category": "Standard",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            40.0,
+            50.0,
+            60.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0008
+        },
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-02",
+          "test_name": "High average with single failing subject [39, 80, 90]",
+          "category": "Fault-Exposing",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            39.0,
+            80.0,
+            90.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": null,
+          "actual_return": null,
+          "exception_raised": null,
+          "executed": false,
+          "timed_out": false,
+          "observed_result": "UNKNOWN",
+          "execution_time_ms": null
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-03",
+          "test_name": "Exact lower passing boundary across all subjects [40, 40, 40]",
+          "category": "Boundary",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            40.0,
+            40.0,
+            40.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0007
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-04",
+          "test_name": "Just below passing boundary across all subjects [39, 39, 39]",
+          "category": "Boundary",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            39.0,
+            39.0,
+            39.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": "False (FAIL)",
+          "actual_return": false,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0005
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-05",
+          "test_name": "Boundary straddle with exact 40.0 average [39, 40, 41]",
+          "category": "Boundary / Fault-Exposing",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            39.0,
+            40.0,
+            41.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": null,
+          "actual_return": null,
+          "exception_raised": null,
+          "executed": false,
+          "timed_out": false,
+          "observed_result": "UNKNOWN",
+          "execution_time_ms": null
+        },
+        {
+          "requirement_id": "REQ-01",
+          "test_id": "TC-06",
+          "test_name": "Trailing subject failure with high overall average [95, 88, 39]",
+          "category": "Fault-Exposing",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            95.0,
+            88.0,
+            39.0
+          ],
+          "expected_output": "False (FAIL)",
+          "expected_return": false,
+          "expected_exception": null,
+          "actual_output": null,
+          "actual_return": null,
+          "exception_raised": null,
+          "executed": false,
+          "timed_out": false,
+          "observed_result": "UNKNOWN",
+          "execution_time_ms": null
+        },
+        {
+          "requirement_id": "REQ-02",
+          "test_id": "TC-07",
+          "test_name": "Single subject at exact threshold with high peers [40, 100, 100]",
+          "category": "Boundary",
+          "implementation_id": "faulty_average_only",
+          "input": [
+            40.0,
+            100.0,
+            100.0
+          ],
+          "expected_output": "True (PASS)",
+          "expected_return": true,
+          "expected_exception": null,
+          "actual_output": "True (PASS)",
+          "actual_return": true,
+          "exception_raised": null,
+          "executed": true,
+          "timed_out": false,
+          "observed_result": "PASS",
+          "execution_time_ms": 0.0004
+        },
+        {
+          "requirement_id": "REQ-03",
+          "test_id": "TC-08",
+          "test_name": "Empty subject marks list []",
+          "category": "Validation",
+          "implementation_id": "faulty_average_only",
+          "input": [],
+          "expected_output": "Exception: ValueError",
+          "expected_return": null,
+          "expected_exception": "ValueError",
+          "actual_output": null,
+          "actual_return": null,
+          "exception_raised": null,
+          "executed": false,
+          "timed_out": false,
+          "observed_result": "UNKNOWN",
+          "execution_time_ms": null
+        }
+      ],
+      "explanations": [
+        {
+          "test_id": "TC-01",
+          "requirement_id": "REQ-01",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=40.0, max=60.0, avg=50.00, marks_below_40=[]",
+          "design_note": "All subject marks are >= 40 (min = 40, average = 50.00). Student should pass.",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 50.0, 60.0] (count=3, min=40.0, max=60.0, avg=50.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-02",
+          "requirement_id": "REQ-01",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=90.0, avg=69.67, marks_below_40=[39.0]",
+          "design_note": "Critical counterexample from MVP scope: average is 69.67 (>= 40), but subject 1 is 39 (< 40). Exposes average-only implementations.",
+          "diagnostic_explanation": "Check TC-02 was not executed in this run. Uninitialized or skipped checks remain UNKNOWN."
+        },
+        {
+          "test_id": "TC-03",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=40.0, max=40.0, avg=40.00, marks_below_40=[]",
+          "design_note": "Every subject mark sits on the exact passing boundary of 40 (min = 40, average = 40.00).",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 40.0, 40.0] (count=3, min=40.0, max=40.0, avg=40.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-04",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=39.0, avg=39.00, marks_below_40=[39.0, 39.0, 39.0]",
+          "design_note": "Every subject mark is 39, one point below the passing threshold (min = 39, average = 39.00).",
+          "diagnostic_explanation": "Observed output False (FAIL) matches expected False (FAIL) for input [39.0, 39.0, 39.0] (count=3, min=39.0, max=39.0, avg=39.00, marks_below_40=[39.0, 39.0, 39.0])."
+        },
+        {
+          "test_id": "TC-05",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=41.0, avg=40.00, marks_below_40=[39.0]",
+          "design_note": "Tests boundary values 39 and 40 simultaneously while keeping the arithmetic average at exactly 40.00. Subject 1 (39) must cause a failure.",
+          "diagnostic_explanation": "Check TC-05 was not executed in this run. Uninitialized or skipped checks remain UNKNOWN."
+        },
+        {
+          "test_id": "TC-06",
+          "requirement_id": "REQ-01",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=39.0, max=95.0, avg=74.00, marks_below_40=[39.0]",
+          "design_note": "Ensures all positions in the marks list are checked. Average is 74.00 (>= 40), but the final subject mark is 39 (< 40).",
+          "diagnostic_explanation": "Check TC-06 was not executed in this run. Uninitialized or skipped checks remain UNKNOWN."
+        },
+        {
+          "test_id": "TC-07",
+          "requirement_id": "REQ-02",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=3, min=40.0, max=100.0, avg=80.00, marks_below_40=[]",
+          "design_note": "Verifies that a mark of exactly 40 is treated as inclusive (>= 40, not > 40).",
+          "diagnostic_explanation": "Observed output True (PASS) matches expected True (PASS) for input [40.0, 100.0, 100.0] (count=3, min=40.0, max=100.0, avg=80.00, marks_below_40=[])."
+        },
+        {
+          "test_id": "TC-08",
+          "requirement_id": "REQ-03",
+          "implementation_id": "faulty_average_only",
+          "input_metrics": "count=0 (empty list)",
+          "design_note": "Guards against Python's vacuous truth (`all([]) == True`) and unhandled `ZeroDivisionError` when computing an average on empty input.",
+          "diagnostic_explanation": "Check TC-08 was not executed in this run. Uninitialized or skipped checks remain UNKNOWN."
+        }
+      ],
+      "scope_disclaimer": "A passing test suite is execution evidence for the specific checks run, never a proof of universal correctness. Missing, timed-out, or unexecuted checks are marked UNKNOWN and never assumed to pass."
+    }
+  }
+}
