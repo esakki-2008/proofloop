@@ -20,8 +20,11 @@ Security & Epistemic Policy:
 from __future__ import annotations
 
 import base64
+from collections import deque
 import os
 from pathlib import Path
+import threading
+import time
 from typing import Optional
 
 import httpx
@@ -37,6 +40,8 @@ from app.models import (
 GNANI_API_KEY_ENV: str = "GNANI_API_KEY"
 GNANI_BASE_URL_ENV: str = "GNANI_BASE_URL"
 GNANI_TIMEOUT_ENV: str = "GNANI_TIMEOUT_SECONDS"
+GNANI_RATE_LIMIT_MAX_REQUESTS_ENV: str = "GNANI_RATE_LIMIT_MAX_REQUESTS"
+GNANI_RATE_LIMIT_WINDOW_SECONDS_ENV: str = "GNANI_RATE_LIMIT_WINDOW_SECONDS"
 
 DEFAULT_GNANI_BASE_URL: str = "https://api.vachana.ai"
 GNANI_STT_ENDPOINT: str = "/stt/v3"
@@ -47,8 +52,23 @@ DEFAULT_TIMEOUT_SECONDS: float = 15.0
 MIN_TIMEOUT_SECONDS: float = 1.0
 MAX_TIMEOUT_SECONDS: float = 60.0
 
+DEFAULT_RATE_LIMIT_MAX_REQUESTS: int = 10
+DEFAULT_RATE_LIMIT_WINDOW_SECONDS: int = 60
+MAX_TRACKED_RATE_LIMIT_CLIENTS: int = 1024
+
 MAX_AUDIO_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 5 MB limit for short voice clips
+MAX_TTS_AUDIO_RESPONSE_BYTES: int = 10 * 1024 * 1024  # 10 MB upper bound for synthesized WAV summary
+MIN_WAV_HEADER_BYTES: int = 44
 MAX_TTS_TEXT_LENGTH: int = 600
+
+ACCEPTED_TTS_WAV_CONTENT_TYPES: frozenset[str] = frozenset(
+    {
+        "audio/wav",
+        "audio/x-wav",
+        "audio/wave",
+        "audio/vnd.wave",
+    }
+)
 
 SUPPORTED_STT_LANGUAGES: tuple[str, ...] = (
     "en-IN",
@@ -212,6 +232,93 @@ class GnaniUpstreamError(GnaniServiceError):
     """Raised when the upstream Gnani API returns an error, times out, or is unreachable."""
 
 
+class GnaniRateLimitExceededError(GnaniServiceError):
+    """Raised when a client exceeds the local sliding-window voice endpoint rate limit."""
+
+    def __init__(self, max_requests: int, window_seconds: int) -> None:
+        super().__init__(
+            status_code=429,
+            error_code="VOICE_RATE_LIMIT_EXCEEDED",
+            message=(
+                f"Voice request rate limit exceeded (maximum {max_requests} requests "
+                f"per {window_seconds} seconds). Please wait before retrying."
+            ),
+        )
+
+
+def _get_rate_limit_config() -> tuple[int, int]:
+    raw_max = os.environ.get(GNANI_RATE_LIMIT_MAX_REQUESTS_ENV, "").strip()
+    raw_window = os.environ.get(GNANI_RATE_LIMIT_WINDOW_SECONDS_ENV, "").strip()
+    try:
+        max_reqs = max(1, min(1000, int(raw_max))) if raw_max else DEFAULT_RATE_LIMIT_MAX_REQUESTS
+    except ValueError:
+        max_reqs = DEFAULT_RATE_LIMIT_MAX_REQUESTS
+    try:
+        window_secs = (
+            max(1, min(3600, int(raw_window))) if raw_window else DEFAULT_RATE_LIMIT_WINDOW_SECONDS
+        )
+    except ValueError:
+        window_secs = DEFAULT_RATE_LIMIT_WINDOW_SECONDS
+    return max_reqs, window_secs
+
+
+class VoiceRateLimiter:
+    """In-memory sliding-window rate limiter to protect Gnani voice endpoints from public abuse.
+
+    Note on multi-worker deployments:
+        State is stored per Python worker process in memory and resets on process restart.
+        For multi-worker or public production deployments, pair this with a shared store
+        (e.g. Redis) or an upstream reverse-proxy rate limiter.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._requests_by_client: dict[str, deque[float]] = {}
+
+    def check_and_record(self, client_id: str) -> None:
+        max_requests, window_seconds = _get_rate_limit_config()
+        now = time.monotonic()
+        cutoff = now - float(window_seconds)
+        normalized_client = (client_id or "anonymous").strip() or "anonymous"
+
+        with self._lock:
+            if (
+                normalized_client not in self._requests_by_client
+                and len(self._requests_by_client) >= MAX_TRACKED_RATE_LIMIT_CLIENTS
+            ):
+                # Evict expired entries first; if still full, evict oldest tracked client key
+                expired_keys = [
+                    k
+                    for k, timestamps in self._requests_by_client.items()
+                    if not timestamps or timestamps[-1] <= cutoff
+                ]
+                for k in expired_keys:
+                    del self._requests_by_client[k]
+                if len(self._requests_by_client) >= MAX_TRACKED_RATE_LIMIT_CLIENTS:
+                    oldest_key = next(iter(self._requests_by_client))
+                    del self._requests_by_client[oldest_key]
+
+            bucket = self._requests_by_client.setdefault(normalized_client, deque())
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+
+            if len(bucket) >= max_requests:
+                raise GnaniRateLimitExceededError(
+                    max_requests=max_requests,
+                    window_seconds=window_seconds,
+                )
+
+            bucket.append(now)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._requests_by_client.clear()
+
+
+voice_rate_limiter = VoiceRateLimiter()
+
+
+
 def _get_api_key() -> str:
     return os.environ.get(GNANI_API_KEY_ENV, "").strip()
 
@@ -244,6 +351,7 @@ def get_gnani_config_status() -> GnaniConfigStatusResponse:
     api_key = _get_api_key()
     configured = bool(api_key)
     missing = [] if configured else [GNANI_API_KEY_ENV]
+    max_requests, window_seconds = _get_rate_limit_config()
     message = (
         "Gnani AI Prisma STT and Timbre TTS are configured."
         if configured
@@ -267,6 +375,8 @@ def get_gnani_config_status() -> GnaniConfigStatusResponse:
         max_audio_bytes=MAX_AUDIO_UPLOAD_BYTES,
         default_tts_model="timbre-v2.5",
         default_tts_voice="Kaveri",
+        rate_limit_max_requests=max_requests,
+        rate_limit_window_seconds=window_seconds,
         message=message,
     )
 
@@ -600,14 +710,52 @@ def validate_tts_parameters(
     return cleaned_text
 
 
+def validate_tts_wav_response(audio_bytes: bytes, content_type_header: str) -> None:
+    """Validate that the upstream Gnani TTS response is a genuine, bounded WAV audio payload."""
+    normalized_ct = (content_type_header or "").split(";")[0].strip().lower()
+    if normalized_ct not in ACCEPTED_TTS_WAV_CONTENT_TYPES:
+        raise GnaniUpstreamError(
+            status_code=502,
+            error_code="GNANI_TTS_INVALID_CONTENT_TYPE",
+            message=(
+                f"Gnani AI Text-to-Speech returned unexpected Content-Type '{normalized_ct or 'missing'}' "
+                "instead of 'audio/wav'."
+            ),
+        )
+
+    if not audio_bytes or len(audio_bytes) < MIN_WAV_HEADER_BYTES:
+        raise GnaniUpstreamError(
+            status_code=502,
+            error_code="GNANI_TTS_MALFORMED_AUDIO",
+            message="Gnani AI Text-to-Speech returned an empty or truncated audio payload.",
+        )
+
+    if len(audio_bytes) > MAX_TTS_AUDIO_RESPONSE_BYTES:
+        raise GnaniUpstreamError(
+            status_code=502,
+            error_code="GNANI_TTS_OVERSIZED_AUDIO",
+            message=(
+                f"Gnani AI Text-to-Speech response ({len(audio_bytes)} bytes) exceeds "
+                f"maximum allowed size of {MAX_TTS_AUDIO_RESPONSE_BYTES} bytes."
+            ),
+        )
+
+    if audio_bytes[:4] != b"RIFF" or audio_bytes[8:12] != b"WAVE":
+        raise GnaniUpstreamError(
+            status_code=502,
+            error_code="GNANI_TTS_MALFORMED_AUDIO",
+            message="Gnani AI Text-to-Speech response lacks a valid RIFF/WAVE binary header.",
+        )
+
+
 def synthesize_speech_with_gnani(
     summary_text: str,
+    run_id: str,
+    overall_status: VerificationStatus,
     model: str = "timbre-v2.5",
     voice: str = "Kaveri",
     language: str = "en-IN",
     speed: float = 1.0,
-    run_id: Optional[str] = None,
-    overall_status: Optional[VerificationStatus] = None,
     http_client: Optional[httpx.Client] = None,
 ) -> TTSResponseModel:
     """Synthesize speech via Gnani Timbre TTS REST API (POST /api/v1/tts/inference)."""
@@ -676,14 +824,8 @@ def synthesize_speech_with_gnani(
         raise _map_upstream_http_error(response, api_key, "Text-to-Speech")
 
     audio_bytes = response.content
-    content_type_header = response.headers.get("content-type", "").lower()
-
-    if not audio_bytes or "application/json" in content_type_header:
-        raise GnaniUpstreamError(
-            status_code=502,
-            error_code="GNANI_TTS_MALFORMED_AUDIO",
-            message="Gnani AI Text-to-Speech did not return valid binary audio content.",
-        )
+    content_type_header = response.headers.get("content-type", "")
+    validate_tts_wav_response(audio_bytes=audio_bytes, content_type_header=content_type_header)
 
     encoded_audio = base64.b64encode(audio_bytes).decode("ascii")
     return TTSResponseModel(
@@ -696,3 +838,4 @@ def synthesize_speech_with_gnani(
         voice=voice,
         language=language,
     )
+

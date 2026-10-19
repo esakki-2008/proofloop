@@ -130,6 +130,8 @@ export interface GnaniConfigStatus {
   max_audio_bytes: number;
   default_tts_model: string;
   default_tts_voice: string;
+  rate_limit_max_requests?: number;
+  rate_limit_window_seconds?: number;
   message: string;
 }
 
@@ -145,8 +147,8 @@ export interface TTSResponse {
   summary_text: string;
   audio_base64: string;
   content_type: string;
-  run_id: string | null;
-  overall_status: VerificationStatus | null;
+  run_id: string;
+  overall_status: VerificationStatus;
   model: string;
   voice: string;
   language: string;

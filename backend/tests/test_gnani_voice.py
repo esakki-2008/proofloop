@@ -16,10 +16,13 @@ from fastapi.testclient import TestClient
 import app.gnani_service as gnani_service
 from app.gnani_service import (
     GNANI_API_KEY_ENV,
+    GNANI_RATE_LIMIT_MAX_REQUESTS_ENV,
+    GNANI_RATE_LIMIT_WINDOW_SECONDS_ENV,
     MAX_AUDIO_UPLOAD_BYTES,
     build_spoken_summary_from_report,
     synthesize_speech_with_gnani,
     transcribe_speech_with_gnani,
+    voice_rate_limiter,
 )
 from app.main import app
 from app.models import VerificationStatus
@@ -28,6 +31,12 @@ from app.verifier import execute_verification_run
 client = TestClient(app)
 
 SAMPLE_WAV_BYTES = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter() -> None:
+    voice_rate_limiter.reset()
+
 
 
 def test_voice_status_when_credentials_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -288,3 +297,136 @@ def test_tts_endpoint_handles_missing_credentials_and_invalid_parameters(
         json={"run_id": "correct_full", "model": "timbre-v2.5", "voice": "NonExistentVoice"},
     )
     assert resp_bad_voice.status_code == 400
+
+
+def test_tts_rejects_arbitrary_free_form_text_and_unknown_run_id_without_calling_gnani(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(GNANI_API_KEY_ENV, "dummy_key")
+    gnani_called = False
+
+    def _forbidden_gnani_call(*_args: object, **_kwargs: object) -> object:
+        nonlocal gnani_called
+        gnani_called = True
+        raise AssertionError("Gnani TTS should not be called when request validation or run lookup fails")
+
+    monkeypatch.setattr("app.main.synthesize_speech_with_gnani", _forbidden_gnani_call)
+
+    # 1. Free-form text without run_id is rejected (422)
+    resp_free_text = client.post("/api/voice/tts", json={"text": "Synthesize arbitrary user text"})
+    assert resp_free_text.status_code == 422
+
+    # 2. Extra text field alongside run_id is rejected (extra="forbid" -> 422)
+    resp_extra_text = client.post(
+        "/api/voice/tts",
+        json={"run_id": "correct_full", "text": "Override summary"},
+    )
+    assert resp_extra_text.status_code == 422
+
+    # 3. Unknown run_id is rejected with 404 before calling Gnani
+    resp_unknown = client.post("/api/voice/tts", json={"run_id": "unknown_run_999"})
+    assert resp_unknown.status_code == 404
+    assert gnani_called is False
+
+
+def test_tts_preserves_pass_fail_and_unknown_statuses_from_stored_reports() -> None:
+    correct_report = execute_verification_run(implementation_id="correct_all_subjects")
+    faulty_report = execute_verification_run(implementation_id="faulty_average_only")
+    unknown_report = execute_verification_run(
+        implementation_id="faulty_average_only",
+        selected_test_ids=["TC-01", "TC-03"],
+    )
+
+    assert correct_report.overall_status == VerificationStatus.PASS
+    assert faulty_report.overall_status == VerificationStatus.FAIL
+    assert unknown_report.overall_status == VerificationStatus.UNKNOWN
+
+    assert "overall status is PASS" in build_spoken_summary_from_report(correct_report)
+    assert "overall status is FAIL" in build_spoken_summary_from_report(faulty_report)
+    assert "overall status is UNKNOWN" in build_spoken_summary_from_report(unknown_report)
+
+
+@pytest.mark.parametrize(
+    ("content_type", "body_bytes", "expected_error_code"),
+    [
+        (
+            "text/html; charset=utf-8",
+            b"<html><body>502 Bad Gateway</body></html>" + b" " * 40,
+            "GNANI_TTS_INVALID_CONTENT_TYPE",
+        ),
+        (
+            "application/json",
+            b'{"error": "unexpected json body"}' + b" " * 40,
+            "GNANI_TTS_INVALID_CONTENT_TYPE",
+        ),
+        (
+            "audio/wav",
+            b"",
+            "GNANI_TTS_MALFORMED_AUDIO",
+        ),
+        (
+            "audio/wav",
+            b"RIFF\x10\x00\x00\x00WAVEshort",
+            "GNANI_TTS_MALFORMED_AUDIO",
+        ),
+        (
+            "audio/wav",
+            b"NOT_A_RIFF_WAVE_HEADER_AT_ALL_BUT_AT_LEAST_44_BYTES_LONG_PAYLOAD",
+            "GNANI_TTS_MALFORMED_AUDIO",
+        ),
+    ],
+)
+def test_tts_rejects_invalid_content_type_and_malformed_or_non_wav_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    content_type: str,
+    body_bytes: bytes,
+    expected_error_code: str,
+) -> None:
+    monkeypatch.setenv(GNANI_API_KEY_ENV, "test_key_wav_validation")
+
+    def bad_audio_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=body_bytes,
+            headers={"content-type": content_type},
+        )
+
+    mock_client = httpx.Client(transport=httpx.MockTransport(bad_audio_handler))
+    with pytest.raises(gnani_service.GnaniUpstreamError) as exc_info:
+        synthesize_speech_with_gnani(
+            summary_text="PROOFLOOP verification result: overall status is PASS.",
+            run_id="correct_full",
+            overall_status=VerificationStatus.PASS,
+            http_client=mock_client,
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.error_code == expected_error_code
+
+
+def test_voice_endpoints_enforce_rate_limit_before_calling_gnani(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(GNANI_RATE_LIMIT_MAX_REQUESTS_ENV, "2")
+    monkeypatch.setenv(GNANI_RATE_LIMIT_WINDOW_SECONDS_ENV, "60")
+    monkeypatch.delenv(GNANI_API_KEY_ENV, raising=False)
+
+    # First two requests pass the rate limiter (and hit the 503 missing-key check)
+    r1 = client.post("/api/voice/tts", json={"run_id": "correct_full"})
+    r2 = client.post("/api/voice/tts", json={"run_id": "correct_full"})
+    assert r1.status_code == 503
+    assert r2.status_code == 503
+
+    # Third request within the window is blocked by the rate limiter with 429
+    r3 = client.post("/api/voice/tts", json={"run_id": "correct_full"})
+    assert r3.status_code == 429
+    assert "rate limit exceeded" in r3.json()["detail"].lower()
+
+    # STT endpoint shares the voice rate limiter and is also blocked with 429
+    r4 = client.post(
+        "/api/voice/stt",
+        files={"audio_file": ("sample.wav", io.BytesIO(SAMPLE_WAV_BYTES), "audio/wav")},
+        data={"language_code": "en-IN"},
+    )
+    assert r4.status_code == 429
+

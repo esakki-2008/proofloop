@@ -180,6 +180,8 @@ class GnaniConfigStatusResponse(BaseModel):
     max_audio_bytes: int
     default_tts_model: str = "timbre-v2.5"
     default_tts_voice: str = "Kaveri"
+    rate_limit_max_requests: int = 10
+    rate_limit_window_seconds: int = 60
     message: str
 
 
@@ -197,17 +199,19 @@ class STTResponseModel(BaseModel):
 
 
 class TTSRequestModel(BaseModel):
-    """Controlled request to synthesize a concise verification result summary via Gnani Timbre TTS."""
+    """Controlled request to synthesize a concise verification result summary via Gnani Timbre TTS.
+
+    Restricted strictly to stored verification run reports via run_id; arbitrary free-form
+    text synthesis is not permitted.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    run_id: Optional[str] = Field(
-        default=None,
-        description="Run ID in the Evidence Ledger to summarize from actual backend verification evidence.",
-    )
-    text: Optional[str] = Field(
-        default=None,
-        description="Optional explicit summary text (1-600 chars) when run_id is not specified.",
+    run_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Required Run ID in the Evidence Ledger to summarize from actual backend verification evidence.",
     )
     language: str = Field(
         default="en-IN",
@@ -233,9 +237,10 @@ class TTSResponseModel(BaseModel):
     summary_text: str
     audio_base64: str
     content_type: str = "audio/wav"
-    run_id: Optional[str] = None
-    overall_status: Optional[VerificationStatus] = None
+    run_id: str
+    overall_status: VerificationStatus
     model: str
     voice: str
     language: str
+
 

@@ -79,10 +79,11 @@ PROOFLOOP integrates **only official Gnani AI Speech APIs** (`https://api.vachan
    - Transcribes short spoken requirement clips (`WAV`, `MP3`, `OGG`, `FLAC`, `AAC`, `M4A`, up to 5 MB) into an editable text field.
    - Requires explicit operator review and confirmation (**Confirm Transcript for Review**) before use.
 2. **Text-to-Speech (`POST /api/voice/tts` → Gnani Timbre v2.5/v3.0 `POST https://api.vachana.ai/api/v1/tts/inference`)**:
-   - Generates a concise spoken summary directly from the actual backend verification report (`PASS`, `FAIL`, or `UNKNOWN`) when the user clicks **Read Result Aloud**, returning `audio/wav` for manual playback without autoplay.
+   - Restricted strictly to stored `VerificationRunReport` entries (`run_id` is required; arbitrary free-form text synthesis is rejected).
+   - Generates a concise spoken summary directly from the actual backend verification report (`PASS`, `FAIL`, or `UNKNOWN`) when the user clicks **Read Result Aloud**, validates that the upstream response has `Content-Type: audio/wav` and a valid `RIFF/WAVE` binary header, and returns `audio/wav` for manual playback without autoplay.
    - Never alters the underlying verification status or replaces the visual Evidence Ledger.
 
-### Configuring Gnani Credentials (Server-Side Only)
+### Configuring Gnani Credentials & Rate Limits (Server-Side Only)
 
 Set the official Gnani API key in the backend environment before starting FastAPI. Never commit `.env` files or expose credentials to browser JavaScript:
 
@@ -93,6 +94,10 @@ export GNANI_API_KEY="your_gnani_api_key_placeholder"
 # Optional overrides (defaults shown)
 export GNANI_BASE_URL="https://api.vachana.ai"
 export GNANI_TIMEOUT_SECONDS="15.0"
+
+# Optional per-client sliding-window rate limit for /api/voice/stt and /api/voice/tts
+export GNANI_RATE_LIMIT_MAX_REQUESTS="10"
+export GNANI_RATE_LIMIT_WINDOW_SECONDS="60"
 ```
 
 ### Features Requiring a Configured Gnani Account vs. Offline / Unconfigured Mode
@@ -101,14 +106,16 @@ export GNANI_TIMEOUT_SECONDS="15.0"
 - **Works without `GNANI_API_KEY`**: When `GNANI_API_KEY` is unset, `GET /api/voice/status` reports `configured: false` and the UI disables live STT/TTS calls with a clear configuration notice. Users can still type, edit, and confirm requirement text manually, run all deterministic verification scenarios (`PASS`, `FAIL`, `UNKNOWN`), and inspect the full Evidence Ledger.
 - **Testing without real credentials**: Both `pytest -v` (backend) and `cd frontend && npm test` (frontend) use mocked HTTP transports (`httpx.MockTransport`) and mocked API responses, requiring no live Gnani credentials or network access.
 
-### Audio Handling & Privacy Behavior
+### Audio Handling, Abuse Safeguards & Privacy Behavior
 
-- Uploaded audio clips are validated for non-empty size (`<= 5 MB`) and accepted media types/extensions (`wav`, `mp3`, `ogg`, `flac`, `aac`, `m4a`) before being forwarded to Gnani AI.
-- Audio recordings, synthesized speech buffers, and transcripts are processed strictly in memory and are never written to disk or application logs.
-- Server error handlers redact `GNANI_API_KEY` so credentials are never leaked in error responses.
+- **Sliding-Window Rate Limiting**: `/api/voice/stt` and `/api/voice/tts` enforce a configurable per-client sliding-window rate limit (`GNANI_RATE_LIMIT_MAX_REQUESTS`, default `10` requests per `GNANI_RATE_LIMIT_WINDOW_SECONDS`, default `60` seconds) before forwarding requests to Gnani AI, preventing accidental or automated credit exhaustion.
+- **Report-Only TTS**: `/api/voice/tts` requires a valid `run_id` present in the Evidence Ledger and rejects unknown `run_id` values (`404`) or free-form `text` fields (`422`) without calling Gnani AI.
+- **Audio Upload & Response Validation**: Uploaded STT audio clips are validated for non-empty size (`<= 5 MB`) and accepted media types/extensions (`wav`, `mp3`, `ogg`, `flac`, `aac`, `m4a`). Upstream TTS responses are validated for `audio/wav` content type, bounded size (`<= 10 MB`), and a valid `RIFF/WAVE` binary signature before being returned.
+- **In-Memory Processing**: Audio recordings, synthesized speech buffers, and transcripts are processed strictly in memory and are never written to disk or application logs. Server error handlers redact `GNANI_API_KEY` so credentials are never leaked.
 
 ### Known Limitations & Operational Notes
 
+- **In-Memory Rate Limiter Scope**: The built-in `VoiceRateLimiter` stores request timestamps in memory per Python worker process and resets on restart (and CORS is not authentication or a rate limit). Before exposing the service publicly or running multiple worker processes, enforce rate limiting and authentication at an upstream reverse proxy / API gateway or back the limiter with a shared store (such as Redis).
 - **Simulated Timeout Handling**: Timeout behavior (`simulated_timeout_test_ids` in `backend/app/verifier.py`) is currently a deterministic simulation used to verify that timed-out checks propagate as `UNKNOWN` rather than `PASS`; it does not enforce a real wall-clock or subprocess execution timeout. (Separately, outbound HTTP requests to Gnani AI apply a bounded client timeout via `GNANI_TIMEOUT_SECONDS`.)
 - **Single Slot for Custom Runs (`custom_run`)**: Executing a custom verification run via `POST /api/verify` stores its report under the `custom_run` key in the ledger, overwriting any previous `custom_run` entry.
 - **Local JSON File Persistence**: Verification runs are persisted to `backend/app/data/evidence_ledger.json` on the local filesystem. This persistence mechanism must be reviewed before deploying to an ephemeral or read-only host (where disk writes may fail or reset across restarts).

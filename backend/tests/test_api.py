@@ -14,8 +14,12 @@ def test_health_endpoint() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
+    assert payload["phase"] == "phase-2-gnani-voice"
     assert payload["arbitrary_code_execution"] == "disabled"
-    assert payload["external_ai_apis"] == "disabled"
+    assert payload["verification_engine"] == "deterministic-local-only"
+    assert payload["external_ai_apis"] == "gnani-speech-only"
+    assert isinstance(payload["gnani_voice_configured"], bool)
+
 
 
 def test_catalog_endpoint_returns_fixed_implementations_and_tests() -> None:
