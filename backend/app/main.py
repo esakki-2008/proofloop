@@ -12,11 +12,27 @@ Security policy:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.gnani_service import (
+    MAX_AUDIO_UPLOAD_BYTES,
+    GnaniServiceError,
+    build_spoken_summary_from_report,
+    get_gnani_config_status,
+    synthesize_speech_with_gnani,
+    transcribe_speech_with_gnani,
+)
 from app.grading import IMPLEMENTATIONS, PASS_MARK_THRESHOLD
-from app.models import EvidenceLedger, VerificationRunReport, VerifyRequest
+from app.models import (
+    EvidenceLedger,
+    GnaniConfigStatusResponse,
+    STTResponseModel,
+    TTSRequestModel,
+    TTSResponseModel,
+    VerificationRunReport,
+    VerifyRequest,
+)
 from app.verifier import (
     EPISTEMIC_PRINCIPLE,
     REQUIREMENTS_CATALOG,
@@ -110,3 +126,72 @@ def run_verification(request: VerifyRequest) -> VerificationRunReport:
     ledger.runs["custom_run"] = report
     save_ledger(ledger)
     return report
+
+
+@app.get("/api/voice/status", response_model=GnaniConfigStatusResponse)
+def get_voice_status() -> GnaniConfigStatusResponse:
+    """Return safe configuration status for Gnani AI Speech-to-Text and Text-to-Speech."""
+    return get_gnani_config_status()
+
+
+@app.post("/api/voice/stt", response_model=STTResponseModel)
+async def transcribe_voice(
+    audio_file: UploadFile = File(...),
+    language_code: str = Form("en-IN"),
+    format: str = Form("transcribe"),
+) -> STTResponseModel:
+    """Transcribe an uploaded audio clip using Gnani AI Prisma v2.5 Speech-to-Text."""
+    try:
+        audio_bytes = await audio_file.read(MAX_AUDIO_UPLOAD_BYTES + 1)
+    finally:
+        await audio_file.close()
+
+    try:
+        return transcribe_speech_with_gnani(
+            audio_bytes=audio_bytes,
+            filename=audio_file.filename,
+            content_type=audio_file.content_type,
+            language_code=language_code,
+            stt_format=format,
+        )
+    except GnaniServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@app.post("/api/voice/tts", response_model=TTSResponseModel)
+def synthesize_voice_summary(request: TTSRequestModel) -> TTSResponseModel:
+    """Synthesize a concise spoken summary of a verification result using Gnani Timbre TTS."""
+    summary_text: str
+    overall_status = None
+
+    if request.run_id is not None:
+        ledger = load_or_create_ledger()
+        run_report = ledger.runs.get(request.run_id)
+        if run_report is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Verification run '{request.run_id}' not found in the Evidence Ledger.",
+            )
+        summary_text = build_spoken_summary_from_report(run_report)
+        overall_status = run_report.overall_status
+    elif request.text is not None:
+        summary_text = request.text
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'run_id' or 'text' must be provided for TTS synthesis.",
+        )
+
+    try:
+        return synthesize_speech_with_gnani(
+            summary_text=summary_text,
+            model=request.model,
+            voice=request.voice,
+            language=request.language,
+            speed=request.speed,
+            run_id=request.run_id,
+            overall_status=overall_status,
+        )
+    except GnaniServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+

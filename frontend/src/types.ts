@@ -115,3 +115,40 @@ export interface CatalogResponse {
   requirements: RequirementSpec[];
   test_cases: TestCaseSpec[];
 }
+
+export interface GnaniConfigStatus {
+  configured: boolean;
+  provider: string;
+  base_url: string;
+  stt_endpoint: string;
+  tts_endpoint: string;
+  required_env_vars: string[];
+  missing_env_vars: string[];
+  default_stt_language: string;
+  supported_stt_languages: string[];
+  supported_audio_formats: string[];
+  max_audio_bytes: number;
+  default_tts_model: string;
+  default_tts_voice: string;
+  message: string;
+}
+
+export interface STTResponse {
+  transcript: string;
+  language_code: string;
+  request_id: string | null;
+  timestamp: string | null;
+  epistemic_notice: string;
+}
+
+export interface TTSResponse {
+  summary_text: string;
+  audio_base64: string;
+  content_type: string;
+  run_id: string | null;
+  overall_status: VerificationStatus | null;
+  model: string;
+  voice: string;
+  language: string;
+}
+

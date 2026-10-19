@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   fetchCatalog,
   fetchLedger,
+  fetchVoiceStatus,
   resetBaselineLedger,
   triggerVerificationRun,
 } from './api';
@@ -9,9 +10,11 @@ import {
   CatalogResponse,
   CheckEvidence,
   EvidenceLedger,
+  GnaniConfigStatus,
   VerificationRunReport,
   VerificationStatus,
 } from './types';
+import { VoicePanel } from './VoicePanel';
 import './App.css';
 
 const STATUS_ICONS: Record<VerificationStatus, string> = {
@@ -64,6 +67,7 @@ export function MarksInputDisplay({ marks }: { marks: number[] }) {
 export function App() {
   const [ledger, setLedger] = useState<EvidenceLedger | null>(null);
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<GnaniConfigStatus | null>(null);
   const [activeRunKey, setActiveRunKey] = useState<string>('faulty_full');
   const [reqFilter, setReqFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -78,13 +82,15 @@ export function App() {
     let mounted = true;
     async function loadInitialData() {
       try {
-        const [catalogData, ledgerData] = await Promise.all([
+        const [catalogData, ledgerData, voiceData] = await Promise.all([
           fetchCatalog(),
           fetchLedger(),
+          fetchVoiceStatus().catch(() => null),
         ]);
         if (!mounted) return;
         setCatalog(catalogData);
         setLedger(ledgerData);
+        setVoiceStatus(voiceData);
         setRunnerTestIds(catalogData.test_cases.map((tc) => tc.test_id));
       } catch (err) {
         if (!mounted) return;
@@ -210,7 +216,7 @@ export function App() {
         <div className="security-pills">
           <span className="security-pill">Predefined Implementations Only</span>
           <span className="security-pill">Arbitrary Code Execution: Disabled</span>
-          <span className="security-pill">External AI APIs: Disabled</span>
+          <span className="security-pill">Voice Provider: Gnani AI Only</span>
         </div>
       </header>
 
@@ -235,6 +241,9 @@ export function App() {
           <strong>Error:</strong> {errorMessage}
         </div>
       )}
+
+      {/* Gnani AI Voice Interface (STT + Editable Transcript + TTS Summary) */}
+      <VoicePanel voiceStatus={voiceStatus} activeRun={activeRun} />
 
       {/* Scenario Switcher: Compare PASS, FAIL, and UNKNOWN */}
       <section aria-labelledby="scenarios-heading">

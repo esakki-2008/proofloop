@@ -162,3 +162,80 @@ class VerifyRequest(BaseModel):
         default=None,
         description="Optional label for the verification run.",
     )
+
+
+class GnaniConfigStatusResponse(BaseModel):
+    """Safe configuration readiness status for Gnani AI Speech APIs (never exposes secret values)."""
+
+    configured: bool
+    provider: str = "Gnani AI"
+    base_url: str
+    stt_endpoint: str = "/stt/v3"
+    tts_endpoint: str = "/api/v1/tts/inference"
+    required_env_vars: list[str]
+    missing_env_vars: list[str]
+    default_stt_language: str = "en-IN"
+    supported_stt_languages: list[str]
+    supported_audio_formats: list[str]
+    max_audio_bytes: int
+    default_tts_model: str = "timbre-v2.5"
+    default_tts_voice: str = "Kaveri"
+    message: str
+
+
+class STTResponseModel(BaseModel):
+    """Response returned after Gnani AI Prisma v2.5 Speech-to-Text transcription."""
+
+    transcript: str
+    language_code: str
+    request_id: Optional[str] = None
+    timestamp: Optional[str] = None
+    epistemic_notice: str = (
+        "Speech transcription captures a stated request for human review only. "
+        "It is not verification evidence and does not generate or execute code."
+    )
+
+
+class TTSRequestModel(BaseModel):
+    """Controlled request to synthesize a concise verification result summary via Gnani Timbre TTS."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: Optional[str] = Field(
+        default=None,
+        description="Run ID in the Evidence Ledger to summarize from actual backend verification evidence.",
+    )
+    text: Optional[str] = Field(
+        default=None,
+        description="Optional explicit summary text (1-600 chars) when run_id is not specified.",
+    )
+    language: str = Field(
+        default="en-IN",
+        description="BCP-47 language code supported by Gnani Timbre TTS.",
+    )
+    voice: str = Field(
+        default="Kaveri",
+        description="Gnani Timbre voice name matching the selected model.",
+    )
+    model: str = Field(
+        default="timbre-v2.5",
+        description="Gnani Timbre model ('timbre-v2.5' or 'timbre-v3.0').",
+    )
+    speed: float = Field(
+        default=1.0,
+        description="Speaking speed multiplier between 0.85 and 1.15.",
+    )
+
+
+class TTSResponseModel(BaseModel):
+    """Synthesized speech response containing the concise spoken summary and WAV audio payload."""
+
+    summary_text: str
+    audio_base64: str
+    content_type: str = "audio/wav"
+    run_id: Optional[str] = None
+    overall_status: Optional[VerificationStatus] = None
+    model: str
+    voice: str
+    language: str
+

@@ -2,7 +2,31 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App from './App';
 import * as api from './api';
-import { CatalogResponse, EvidenceLedger } from './types';
+import { CatalogResponse, EvidenceLedger, GnaniConfigStatus } from './types';
+
+const mockVoiceConfigured: GnaniConfigStatus = {
+  configured: true,
+  provider: 'Gnani AI',
+  base_url: 'https://api.vachana.ai',
+  stt_endpoint: '/stt/v3',
+  tts_endpoint: '/api/v1/tts/inference',
+  required_env_vars: ['GNANI_API_KEY'],
+  missing_env_vars: [],
+  default_stt_language: 'en-IN',
+  supported_stt_languages: ['en-IN', 'hi-IN', 'ta-IN'],
+  supported_audio_formats: ['wav', 'mp3', 'ogg', 'flac', 'aac', 'm4a'],
+  max_audio_bytes: 5242880,
+  default_tts_model: 'timbre-v2.5',
+  default_tts_voice: 'Kaveri',
+  message: 'Gnani AI Prisma STT and Timbre TTS are configured.',
+};
+
+const mockVoiceUnconfigured: GnaniConfigStatus = {
+  ...mockVoiceConfigured,
+  configured: false,
+  missing_env_vars: ['GNANI_API_KEY'],
+  message: 'Gnani AI credentials are not configured (GNANI_API_KEY is unset).',
+};
 
 const mockCatalog: CatalogResponse = {
   pass_mark_threshold: 40,
@@ -321,8 +345,10 @@ const mockLedger: EvidenceLedger = {
 
 describe('PROOFLOOP Evidence Ledger UI', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.spyOn(api, 'fetchCatalog').mockResolvedValue(mockCatalog);
     vi.spyOn(api, 'fetchLedger').mockResolvedValue(mockLedger);
+    vi.spyOn(api, 'fetchVoiceStatus').mockResolvedValue(mockVoiceConfigured);
   });
 
   it('renders [39, 80, 90] counterexample failure on faulty implementation and switches across PASS, FAIL, UNKNOWN scenarios', async () => {
@@ -348,4 +374,122 @@ describe('PROOFLOOP Evidence Ledger UI', () => {
     expect(screen.getByTestId('actual-TC-02')).toHaveTextContent('NOT EXECUTED (No Observation)');
     expect(screen.getByTestId('result-TC-02')).toHaveTextContent('UNKNOWN');
   });
+
+  it('allows editing a transcript and requires explicit user confirmation before displaying confirmed review context', async () => {
+    const verifySpy = vi.spyOn(api, 'triggerVerificationRun');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('gnani-voice-panel')).toBeInTheDocument();
+    });
+
+    const textarea = screen.getByTestId('transcript-textarea');
+    const confirmBtn = screen.getByTestId('confirm-transcript-btn');
+
+    expect(confirmBtn).toBeDisabled();
+    expect(screen.queryByTestId('confirmed-transcript-banner')).not.toBeInTheDocument();
+
+    fireEvent.change(textarea, {
+      target: { value: 'Check that every subject mark is at least 40 to pass.' },
+    });
+    expect(confirmBtn).not.toBeDisabled();
+    // Still not confirmed until user explicitly clicks confirm
+    expect(screen.queryByTestId('confirmed-transcript-banner')).not.toBeInTheDocument();
+
+    fireEvent.click(confirmBtn);
+    expect(screen.getByTestId('confirmed-transcript-banner')).toHaveTextContent(
+      'Check that every subject mark is at least 40 to pass.',
+    );
+    expect(screen.getByTestId('confirmed-transcript-banner')).toHaveTextContent(
+      'Aligned with Fixed Grading Task',
+    );
+
+    // Editing again clears confirmation until re-confirmed
+    fireEvent.change(textarea, {
+      target: { value: 'Generate a brand new sorting algorithm test suite.' },
+    });
+    expect(screen.queryByTestId('confirmed-transcript-banner')).not.toBeInTheDocument();
+
+    fireEvent.click(confirmBtn);
+    expect(screen.getByTestId('confirmed-transcript-banner')).toHaveTextContent(
+      'Outside Fixed Task Scope',
+    );
+    // Never auto-triggers verification
+    expect(verifySpy).not.toHaveBeenCalled();
+  });
+
+  it('requests Gnani TTS only on explicit user action, does not autoplay, and preserves verification status', async () => {
+    const ttsSpy = vi.spyOn(api, 'synthesizeVerificationSummary').mockResolvedValue({
+      summary_text:
+        'PROOFLOOP verification result for Faulty Implementation (Average >= 40 Only): overall status is FAIL.',
+      audio_base64: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=',
+      content_type: 'audio/wav',
+      run_id: 'faulty_full',
+      overall_status: 'FAIL',
+      model: 'timbre-v2.5',
+      voice: 'Kaveri',
+      language: 'en-IN',
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('read-result-aloud-btn')).toBeInTheDocument();
+    });
+
+    // TTS must not be called on initial render
+    expect(ttsSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('read-result-aloud-btn'));
+
+    await waitFor(() => {
+      expect(ttsSpy).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('tts-summary-box')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('tts-summary-text')).toHaveTextContent('overall status is FAIL');
+    const audioPlayer = screen.getByTestId('tts-audio-player') as HTMLAudioElement;
+    expect(audioPlayer.autoplay).toBe(false);
+    // Underlying verification status in Evidence Ledger remains FAIL
+    expect(screen.getByTestId('result-TC-02')).toHaveTextContent('FAIL');
+  });
+
+  it('shows graceful unavailable state when Gnani credentials are missing and handles API errors without hiding evidence', async () => {
+    vi.spyOn(api, 'fetchVoiceStatus').mockResolvedValue(mockVoiceUnconfigured);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('gnani-unconfigured-notice')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('speak-requirement-btn')).toBeDisabled();
+    expect(screen.getByTestId('read-result-aloud-btn')).toBeDisabled();
+    // Evidence ledger remains fully visible
+    expect(screen.getByTestId('evidence-ledger-table')).toBeInTheDocument();
+  });
+
+  it('displays understandable error message when TTS API call fails while keeping Evidence Ledger visible', async () => {
+    vi.spyOn(api, 'synthesizeVerificationSummary').mockRejectedValue(
+      new Error('Gnani AI rate limit exceeded during Text-to-Speech. Please wait and retry.'),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('read-result-aloud-btn')).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getByTestId('read-result-aloud-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tts-error-message')).toHaveTextContent(
+        'Gnani AI rate limit exceeded',
+      );
+    });
+
+    expect(screen.getByTestId('evidence-ledger-table')).toBeInTheDocument();
+    expect(screen.getByTestId('result-TC-02')).toHaveTextContent('FAIL');
+  });
 });
+
