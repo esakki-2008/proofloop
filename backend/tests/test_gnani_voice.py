@@ -19,6 +19,7 @@ from app.gnani_service import (
     GNANI_RATE_LIMIT_MAX_REQUESTS_ENV,
     GNANI_RATE_LIMIT_WINDOW_SECONDS_ENV,
     MAX_AUDIO_UPLOAD_BYTES,
+    MAX_TTS_AUDIO_RESPONSE_BYTES,
     build_spoken_summary_from_report,
     synthesize_speech_with_gnani,
     transcribe_speech_with_gnani,
@@ -429,4 +430,167 @@ def test_voice_endpoints_enforce_rate_limit_before_calling_gnani(
         data={"language_code": "en-IN"},
     )
     assert r4.status_code == 429
+
+
+class _TrackingByteStream(httpx.SyncByteStream):
+    """Test helper stream that tracks how many chunks were consumed and whether close() was called."""
+
+    def __init__(self, chunks: list[bytes], *, raise_after_first_chunk: Exception | None = None) -> None:
+        self._chunks = chunks
+        self._raise_after_first_chunk = raise_after_first_chunk
+        self.chunks_yielded = 0
+        self.bytes_yielded = 0
+        self.closed = False
+
+    def __iter__(self):
+        for idx, chunk in enumerate(self._chunks):
+            if idx == 1 and self._raise_after_first_chunk is not None:
+                raise self._raise_after_first_chunk
+            self.chunks_yielded += 1
+            self.bytes_yielded += len(chunk)
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _LazyOversizedWavStream(httpx.SyncByteStream):
+    """Lazily generates 1 MB WAV chunks to verify streaming stops as soon as MAX_TTS_AUDIO_RESPONSE_BYTES is exceeded."""
+
+    def __init__(self, chunk_size: int, total_chunks: int) -> None:
+        self.chunk_size = chunk_size
+        self.total_chunks = total_chunks
+        self.chunks_yielded = 0
+        self.bytes_yielded = 0
+        self.closed = False
+
+    def __iter__(self):
+        for idx in range(self.total_chunks):
+            self.chunks_yielded += 1
+            if idx == 0:
+                chunk = SAMPLE_WAV_BYTES + (b"\x00" * (self.chunk_size - len(SAMPLE_WAV_BYTES)))
+            else:
+                chunk = b"\x00" * self.chunk_size
+            self.bytes_yielded += len(chunk)
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_tts_oversized_stream_stops_early_without_buffering_entire_response_and_closes_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(GNANI_API_KEY_ENV, "test_key_oversized_stream")
+
+    one_mb = 1024 * 1024
+    # 25 MB total across 25 chunks; limit is 10 MB (10 chunks)
+    oversized_stream = _LazyOversizedWavStream(chunk_size=one_mb, total_chunks=25)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "audio/wav"},
+            stream=oversized_stream,
+        )
+
+    mock_client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(gnani_service.GnaniUpstreamError) as exc_info:
+        synthesize_speech_with_gnani(
+            summary_text="PROOFLOOP verification result: overall status is PASS.",
+            run_id="correct_full",
+            overall_status=VerificationStatus.PASS,
+            http_client=mock_client,
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.error_code == "GNANI_TTS_OVERSIZED_AUDIO"
+    # Only 11 chunks (10 MB buffered + the 11th chunk that triggered the cap) were ever pulled;
+    # the remaining 14 MB (chunks 12..25) were never read from the stream.
+    assert oversized_stream.chunks_yielded == 11
+    assert oversized_stream.bytes_yielded == MAX_TTS_AUDIO_RESPONSE_BYTES + one_mb
+    assert oversized_stream.closed is True
+
+
+def test_tts_valid_multi_chunk_stream_succeeds_and_closes_response_on_all_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(GNANI_API_KEY_ENV, "test_key_streaming_paths")
+
+    # 1. Valid multi-chunk WAV stream succeeds and closes stream
+    valid_chunks = [SAMPLE_WAV_BYTES[:16], SAMPLE_WAV_BYTES[16:32], SAMPLE_WAV_BYTES[32:]]
+    valid_stream = _TrackingByteStream(valid_chunks)
+
+    mock_valid_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _req: httpx.Response(200, headers={"content-type": "audio/wav"}, stream=valid_stream)
+        )
+    )
+    result = synthesize_speech_with_gnani(
+        summary_text="PROOFLOOP verification result: overall status is PASS.",
+        run_id="correct_full",
+        overall_status=VerificationStatus.PASS,
+        http_client=mock_valid_client,
+    )
+    assert base64.b64decode(result.audio_base64) == SAMPLE_WAV_BYTES
+    assert valid_stream.chunks_yielded == 3
+    assert valid_stream.closed is True
+
+    # 2. Invalid Content-Type rejects before reading body chunks and closes stream
+    wrong_ct_stream = _TrackingByteStream([b"<html>error</html>"])
+    mock_wrong_ct_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _req: httpx.Response(200, headers={"content-type": "text/html"}, stream=wrong_ct_stream)
+        )
+    )
+    with pytest.raises(gnani_service.GnaniUpstreamError) as ct_exc:
+        synthesize_speech_with_gnani(
+            summary_text="PROOFLOOP verification result: overall status is PASS.",
+            run_id="correct_full",
+            overall_status=VerificationStatus.PASS,
+            http_client=mock_wrong_ct_client,
+        )
+    assert ct_exc.value.error_code == "GNANI_TTS_INVALID_CONTENT_TYPE"
+    assert wrong_ct_stream.chunks_yielded == 0
+    assert wrong_ct_stream.closed is True
+
+    # 3. Upstream HTTP error (e.g. 503) maps error and closes stream
+    error_stream = _TrackingByteStream([b'{"success": false, "error": {"message": "Temporarily unavailable"}}'])
+    mock_error_client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _req: httpx.Response(503, headers={"content-type": "application/json"}, stream=error_stream)
+        )
+    )
+    with pytest.raises(gnani_service.GnaniUpstreamError) as upstream_exc:
+        synthesize_speech_with_gnani(
+            summary_text="PROOFLOOP verification result: overall status is PASS.",
+            run_id="correct_full",
+            overall_status=VerificationStatus.PASS,
+            http_client=mock_error_client,
+        )
+    assert upstream_exc.value.status_code == 503
+    assert upstream_exc.value.error_code == "GNANI_SERVICE_UNAVAILABLE"
+    assert error_stream.closed is True
+
+    # 4. Mid-stream timeout maps to 504 GNANI_TTS_TIMEOUT and closes stream
+    def timeout_stream_handler(request: httpx.Request) -> httpx.Response:
+        stream = _TrackingByteStream(
+            [SAMPLE_WAV_BYTES[:20], SAMPLE_WAV_BYTES[20:]],
+            raise_after_first_chunk=httpx.ReadTimeout("Mid-stream timeout", request=request),
+        )
+        timeout_stream_handler.last_stream = stream  # type: ignore[attr-defined]
+        return httpx.Response(200, headers={"content-type": "audio/wav"}, stream=stream)
+
+    mock_timeout_client = httpx.Client(transport=httpx.MockTransport(timeout_stream_handler))
+    with pytest.raises(gnani_service.GnaniUpstreamError) as timeout_exc:
+        synthesize_speech_with_gnani(
+            summary_text="PROOFLOOP verification result: overall status is PASS.",
+            run_id="correct_full",
+            overall_status=VerificationStatus.PASS,
+            http_client=mock_timeout_client,
+        )
+    assert timeout_exc.value.status_code == 504
+    assert timeout_exc.value.error_code == "GNANI_TTS_TIMEOUT"
+    assert timeout_stream_handler.last_stream.closed is True  # type: ignore[attr-defined]
+
 

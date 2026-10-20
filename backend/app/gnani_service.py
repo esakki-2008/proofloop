@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 from collections import deque
+import json
 import os
 from pathlib import Path
 import threading
@@ -460,7 +461,20 @@ def validate_stt_audio_upload(
 def _extract_upstream_error_message(response: httpx.Response, secret: str) -> str:
     """Extract a safe error description from a non-200 Gnani API response."""
     try:
-        payload = response.json()
+        if response.is_stream_consumed:
+            raw_bytes = response.content[:8192]
+        else:
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_bytes(chunk_size=4096):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= 8192:
+                    break
+            raw_bytes = b"".join(chunks)[:8192]
+        payload = json.loads(raw_bytes.decode("utf-8"))
         if isinstance(payload, dict):
             err = payload.get("error")
             if isinstance(err, dict) and isinstance(err.get("message"), str):
@@ -748,6 +762,43 @@ def validate_tts_wav_response(audio_bytes: bytes, content_type_header: str) -> N
         )
 
 
+def _read_bounded_tts_stream(response: httpx.Response, api_key: str) -> tuple[bytes, str]:
+    """Stream and validate a Gnani TTS response while bounding memory to MAX_TTS_AUDIO_RESPONSE_BYTES."""
+    if response.status_code != 200:
+        raise _map_upstream_http_error(response, api_key, "Text-to-Speech")
+
+    content_type_header = response.headers.get("content-type", "")
+    normalized_ct = content_type_header.split(";")[0].strip().lower()
+    if normalized_ct not in ACCEPTED_TTS_WAV_CONTENT_TYPES:
+        raise GnaniUpstreamError(
+            status_code=502,
+            error_code="GNANI_TTS_INVALID_CONTENT_TYPE",
+            message=(
+                f"Gnani AI Text-to-Speech returned unexpected Content-Type '{normalized_ct or 'missing'}' "
+                "instead of 'audio/wav'."
+            ),
+        )
+
+    audio_buffer = bytearray()
+    for chunk in response.iter_bytes(chunk_size=65536):
+        if not chunk:
+            continue
+        if len(audio_buffer) + len(chunk) > MAX_TTS_AUDIO_RESPONSE_BYTES:
+            raise GnaniUpstreamError(
+                status_code=502,
+                error_code="GNANI_TTS_OVERSIZED_AUDIO",
+                message=(
+                    f"Gnani AI Text-to-Speech response exceeds "
+                    f"maximum allowed size of {MAX_TTS_AUDIO_RESPONSE_BYTES} bytes."
+                ),
+            )
+        audio_buffer.extend(chunk)
+
+    audio_bytes = bytes(audio_buffer)
+    validate_tts_wav_response(audio_bytes=audio_bytes, content_type_header=content_type_header)
+    return audio_bytes, content_type_header
+
+
 def synthesize_speech_with_gnani(
     summary_text: str,
     run_id: str,
@@ -794,19 +845,24 @@ def synthesize_speech_with_gnani(
 
     try:
         if http_client is not None:
-            response = http_client.post(
+            with http_client.stream(
+                "POST",
                 url,
                 headers=headers,
                 json=payload,
                 timeout=timeout,
-            )
+            ) as response:
+                audio_bytes, _ = _read_bounded_tts_stream(response, api_key)
         else:
             with httpx.Client(timeout=timeout) as client:
-                response = client.post(
+                with client.stream(
+                    "POST",
                     url,
                     headers=headers,
                     json=payload,
-                )
+                    timeout=timeout,
+                ) as response:
+                    audio_bytes, _ = _read_bounded_tts_stream(response, api_key)
     except httpx.TimeoutException as exc:
         raise GnaniUpstreamError(
             status_code=504,
@@ -819,13 +875,6 @@ def synthesize_speech_with_gnani(
             error_code="GNANI_TTS_NETWORK_ERROR",
             message="Unable to reach Gnani AI Text-to-Speech service.",
         ) from exc
-
-    if response.status_code != 200:
-        raise _map_upstream_http_error(response, api_key, "Text-to-Speech")
-
-    audio_bytes = response.content
-    content_type_header = response.headers.get("content-type", "")
-    validate_tts_wav_response(audio_bytes=audio_bytes, content_type_header=content_type_header)
 
     encoded_audio = base64.b64encode(audio_bytes).decode("ascii")
     return TTSResponseModel(
