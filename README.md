@@ -47,7 +47,7 @@ The first version must use fixed sample implementations and controlled fixtures.
 # Install Python dependencies
 pip install -r backend/requirements.txt
 
-# Run deterministic backend tests (38 tests covering grading, verifier, API security, and mocked Gnani STT/TTS)
+# Run deterministic backend tests (48 tests covering grading, verifier, API security, and mocked Gnani STT/TTS)
 pytest -v
 
 # Start the FastAPI backend server on port 8000
