@@ -491,5 +491,96 @@ describe('PROOFLOOP Evidence Ledger UI', () => {
     expect(screen.getByTestId('evidence-ledger-table')).toBeInTheDocument();
     expect(screen.getByTestId('result-TC-02')).toHaveTextContent('FAIL');
   });
+
+  it('navigates across Verify, Results, Evidence Inspector, History, and Settings views and supports expandable evidence details', async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Verify before you trust.')).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(/AI that checks its own work/i),
+    ).toBeInTheDocument();
+
+    // Results section shows verdict metrics and primary counterexample TC-02
+    expect(screen.getByTestId('verdict-metrics-strip')).toBeInTheDocument();
+    expect(screen.getByTestId('primary-counterexample-callout')).toHaveTextContent(
+      'TC-02',
+    );
+
+    // Expandable evidence detail drawer shows source reference and diagnostic rationale
+    expect(screen.getByTestId('expanded-detail-TC-02')).toHaveTextContent(
+      'backend/app/grading.py',
+    );
+    fireEvent.click(screen.getByTestId('expand-evidence-TC-02'));
+    expect(screen.queryByTestId('expanded-detail-TC-02')).not.toBeInTheDocument();
+
+    // Source code drawer toggles cleanly
+    fireEvent.click(screen.getByTestId('toggle-source-code-btn'));
+    expect(screen.getByTestId('source-code-drawer')).toBeInTheDocument();
+
+    // Empty filter state and reset
+    fireEvent.change(screen.getByTestId('ledger-search-input'), {
+      target: { value: 'nonexistent_check_xyz' },
+    });
+    expect(screen.getByTestId('ledger-empty-state')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Reset Filters'));
+    expect(screen.getByTestId('evidence-ledger-table')).toBeInTheDocument();
+
+    // Navigate to Results destination and click Inspect evidence
+    fireEvent.click(screen.getByTestId('nav-results'));
+    expect(screen.getByTestId('results-destination-view')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('inspect-evidence-btn'));
+    expect(screen.getByTestId('evidence-destination-view')).toBeInTheDocument();
+
+    // Navigate to History destination and verify storage limitation disclosure
+    fireEvent.click(screen.getByTestId('nav-history'));
+    expect(screen.getByTestId('history-destination-view')).toBeInTheDocument();
+    expect(screen.getByTestId('history-storage-limitation')).toHaveTextContent(
+      'single custom_run slot',
+    );
+
+    // Navigate to Settings & Gnani AI destination
+    fireEvent.click(screen.getByTestId('nav-settings'));
+    expect(screen.getByTestId('settings-destination-view')).toBeInTheDocument();
+    expect(
+      screen.getByText('Gnani AI & Verifier Configuration Status'),
+    ).toBeInTheDocument();
+  });
+
+  it('executes Run verification against the backend, updates verdict, and supports retry on failure', async () => {
+    const verifySpy = vi
+      .spyOn(api, 'triggerVerificationRun')
+      .mockRejectedValueOnce(new Error('Backend verification request timed out'))
+      .mockResolvedValueOnce(mockLedger.runs.correct_full);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-verification-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId('target-impl-select'), {
+      target: { value: 'correct_all_subjects' },
+    });
+
+    // First attempt fails -> shows error banner with Retry verification button
+    fireEvent.click(screen.getByTestId('run-verification-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('workbench-error-banner')).toHaveTextContent(
+        'Backend verification request timed out',
+      );
+    });
+
+    // Clicking Retry verification succeeds and updates verdict to PASS
+    fireEvent.click(screen.getByTestId('retry-verification-btn'));
+    await waitFor(() => {
+      expect(verifySpy).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('workbench-run-notice')).toHaveTextContent(
+        'verdict is PASS',
+      );
+    });
+  });
 });
 

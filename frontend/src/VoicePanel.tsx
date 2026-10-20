@@ -10,7 +10,7 @@ import {
 } from './types';
 import { StatusBadge } from './App';
 
-const LANGUAGE_LABELS: Record<string, string> = {
+export const LANGUAGE_LABELS: Record<string, string> = {
   'en-IN': 'English (en-IN)',
   'hi-IN': 'Hindi (hi-IN)',
   'ta-IN': 'Tamil (ta-IN)',
@@ -23,7 +23,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   'pa-IN': 'Punjabi (pa-IN)',
 };
 
-function assessTranscriptScope(transcript: string): {
+export function assessTranscriptScope(transcript: string): {
   matchesFixedTask: boolean;
   guidance: string;
 } {
@@ -47,13 +47,13 @@ function assessTranscriptScope(transcript: string): {
     return {
       matchesFixedTask: true,
       guidance:
-        'Confirmed transcript aligns with the fixed Phase 1 student-grading verification task (every subject mark >= 40, REQ-01 through REQ-03). Use the scenario selector or Controlled Verification Runner below to execute predefined checks.',
+        'Confirmed transcript aligns with the supported Student-Grading verification task (every subject mark >= 40, REQ-01 through REQ-03). Run verification above to execute the predefined checks.',
     };
   }
   return {
     matchesFixedTask: false,
     guidance:
-      'Scope limitation: PROOFLOOP currently verifies only the fixed predefined student-grading task (every subject mark >= 40) and does not dynamically generate test suites or execute arbitrary code from spoken requests. You may continue using the existing verification controls below.',
+      'Scope limitation: PROOFLOOP currently verifies only the predefined Student-Grading implementations (every subject mark >= 40) and does not dynamically generate test suites or execute arbitrary code from spoken requests.',
   };
 }
 
@@ -147,10 +147,26 @@ async function normalizeRecordedBlobToSupportedFormat(rawBlob: Blob): Promise<{
 export interface VoicePanelProps {
   voiceStatus: GnaniConfigStatus | null;
   activeRun: VerificationRunReport;
+  selectedLanguage?: string;
+  onLanguageChange?: (language: string) => void;
+  onTranscriptConfirmed?: (transcript: string) => void;
 }
 
-export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('en-IN');
+export function VoicePanel({
+  voiceStatus,
+  activeRun,
+  selectedLanguage: controlledLanguage,
+  onLanguageChange,
+  onTranscriptConfirmed,
+}: VoicePanelProps) {
+  const [internalLanguage, setInternalLanguage] = useState<string>('en-IN');
+  const selectedLanguage = controlledLanguage ?? internalLanguage;
+
+  const handleLanguageSelect = (lang: string) => {
+    setInternalLanguage(lang);
+    onLanguageChange?.(lang);
+  };
+
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [transcriptDraft, setTranscriptDraft] = useState<string>('');
@@ -220,7 +236,7 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
       typeof MediaRecorder === 'undefined'
     ) {
       setSttError(
-        'Microphone recording is not supported in this browser environment. You can upload a .wav or .mp3 audio file or edit the transcript directly.',
+        'Microphone recording is not supported in this browser environment. Upload a supported audio file or enter requirement text directly.',
       );
       return;
     }
@@ -308,6 +324,7 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
     const trimmed = transcriptDraft.trim();
     if (!trimmed) return;
     setConfirmedTranscript(trimmed);
+    onTranscriptConfirmed?.(trimmed);
   };
 
   const handleReadResultAloud = async () => {
@@ -337,19 +354,20 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
 
   return (
     <section
-      className="runner-panel"
+      className="surface-card voice-panel-card"
       aria-labelledby="voice-panel-heading"
       data-testid="gnani-voice-panel"
     >
       <div className="section-header">
         <div>
+          <div className="eyebrow-tag">Optional Voice Interface • Gnani AI</div>
           <h2 id="voice-panel-heading" className="section-title">
-            Gnani AI Voice Interface (Prisma STT &amp; Timbre TTS)
+            Gnani AI Speech Integration (Prisma STT &amp; Timbre TTS)
           </h2>
           <p className="section-subtitle">
-            Speak a requirement for transcription and review, or listen to a concise spoken
-            summary of the active verification result. Voice is an interface layer — never a
-            substitute for execution evidence.
+            Transcribe a spoken requirement for human review or generate a spoken summary from
+            the stored verification report. Voice never alters verification outcomes or
+            executes code.
           </p>
         </div>
         <span
@@ -366,54 +384,30 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
         <div
           role="status"
           data-testid="gnani-unconfigured-notice"
-          style={{
-            background: 'var(--unknown-bg)',
-            border: '1px solid var(--unknown-border)',
-            color: 'var(--unknown-text)',
-            borderRadius: '0.5rem',
-            padding: '0.7rem 0.95rem',
-            fontSize: '0.84rem',
-            marginBottom: '1rem',
-          }}
+          className="notice-banner notice-warning"
         >
           <strong>Voice API Unavailable:</strong>{' '}
           {voiceStatus?.message ||
             'Set GNANI_API_KEY on the backend to enable live Gnani AI Prisma STT and Timbre TTS.'}{' '}
-          You can still review or edit requirement text manually and run all deterministic
-          verification checks below.
+          PROOFLOOP works normally without voice: you can review or edit requirement text
+          manually and run all deterministic verification checks.
         </div>
       )}
 
-      <div className="code-grid">
+      <div className="voice-grid">
         {/* Left column: STT Speak Requirement + Editable Transcript + Explicit Confirmation */}
-        <div
-          style={{
-            background: 'var(--bg-code)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '0.6rem',
-            padding: '1rem',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginBottom: '0.75rem',
-            }}
-          >
-            <strong>1. Speak &amp; Review Requirement (Gnani Prisma v2.5 STT)</strong>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <label htmlFor="gnani-lang-select" style={{ fontSize: '0.78rem' }}>
+        <div className="voice-subpanel">
+          <div className="voice-subpanel-header">
+            <strong>1. Speak or Edit Requirement (Gnani Prisma v2.5 STT)</strong>
+            <div className="inline-control-group">
+              <label htmlFor="gnani-lang-select" className="control-label">
                 Language:
               </label>
               <select
                 id="gnani-lang-select"
-                className="runner-select"
+                className="control-select"
                 value={selectedLanguage}
-                onChange={(e) => setSelectedLanguage(e.target.value)}
+                onChange={(e) => handleLanguageSelect(e.target.value)}
                 disabled={isRecording || isTranscribing}
               >
                 {(voiceStatus?.supported_stt_languages ?? Object.keys(LANGUAGE_LABELS)).map(
@@ -427,19 +421,11 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
             </div>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '0.55rem',
-              alignItems: 'center',
-              marginBottom: '0.75rem',
-            }}
-          >
+          <div className="voice-action-row">
             {!isRecording ? (
               <button
                 type="button"
-                className="btn"
+                className="btn btn-secondary"
                 data-testid="speak-requirement-btn"
                 onClick={handleStartRecording}
                 disabled={!isGnaniConfigured || isTranscribing}
@@ -464,23 +450,16 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
                 >
                   Cancel Recording
                 </button>
-                <span
-                  className="mono"
-                  data-testid="recording-indicator"
-                  style={{ fontSize: '0.8rem', color: 'var(--fail-text)' }}
-                >
-                  ● Recording microphone audio...
+                <span className="mono recording-pill" data-testid="recording-indicator">
+                  Recording microphone audio...
                 </span>
               </>
             )}
 
             <label
-              className="btn btn-secondary"
-              style={{
-                opacity: !isGnaniConfigured || isRecording || isTranscribing ? 0.6 : 1,
-                pointerEvents:
-                  !isGnaniConfigured || isRecording || isTranscribing ? 'none' : 'auto',
-              }}
+              className={`btn btn-secondary file-upload-btn ${
+                !isGnaniConfigured || isRecording || isTranscribing ? 'is-disabled' : ''
+              }`}
             >
               Upload Audio Clip
               <input
@@ -498,61 +477,32 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
             <div
               role="alert"
               data-testid="stt-error-message"
-              style={{
-                background: 'var(--fail-bg)',
-                border: '1px solid var(--fail-border)',
-                color: 'var(--fail-text)',
-                borderRadius: '0.45rem',
-                padding: '0.55rem 0.75rem',
-                fontSize: '0.82rem',
-                marginBottom: '0.75rem',
-              }}
+              className="notice-banner notice-error"
             >
               <strong>STT Error:</strong> {sttError}
             </div>
           )}
 
-          <div style={{ marginBottom: '0.65rem' }}>
-            <label
-              htmlFor="requirement-transcript-input"
-              style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.3rem' }}
-            >
-              Editable Requirement Transcript (Review &amp; edit before confirming):
+          <div className="field-block">
+            <label htmlFor="requirement-transcript-input" className="field-label">
+              Editable Requirement Statement (Confirm before applying to review):
             </label>
             <textarea
               id="requirement-transcript-input"
               aria-label="Requirement Transcript"
               data-testid="transcript-textarea"
+              className="control-textarea"
               rows={3}
               value={transcriptDraft}
               onChange={(e) => {
                 setTranscriptDraft(e.target.value);
                 setConfirmedTranscript(null);
               }}
-              placeholder="Transcribed speech will appear here, or type/edit a requirement statement before confirming..."
-              style={{
-                width: '100%',
-                background: 'var(--bg-panel)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '0.45rem',
-                padding: '0.55rem 0.7rem',
-                fontSize: '0.85rem',
-                fontFamily: 'inherit',
-                resize: 'vertical',
-              }}
+              placeholder="Transcribed speech appears here, or type/edit a requirement statement before confirming..."
             />
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
+          <div className="voice-footer-row">
             <button
               type="button"
               className="btn btn-secondary"
@@ -563,96 +513,55 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
               Confirm Transcript for Review
             </button>
             {sttRequestId && (
-              <span className="mono" style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                Gnani Request ID: {sttRequestId}
-              </span>
+              <span className="mono muted-meta">Gnani Request ID: {sttRequestId}</span>
             )}
           </div>
 
           {confirmedTranscript && scopeAssessment && (
             <div
               data-testid="confirmed-transcript-banner"
-              style={{
-                marginTop: '0.75rem',
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '0.45rem',
-                padding: '0.65rem 0.8rem',
-                fontSize: '0.82rem',
-              }}
+              className="confirmed-transcript-card"
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '0.35rem',
-                }}
-              >
-                <strong>Confirmed Transcript (Not Verification Evidence)</strong>
-                <span className="mono" style={{ fontSize: '0.73rem', color: 'var(--accent-blue)' }}>
+              <div className="confirmed-transcript-header">
+                <strong>Confirmed Transcript (Human Review Only)</strong>
+                <span className="mono scope-tag">
                   {scopeAssessment.matchesFixedTask
                     ? 'Aligned with Fixed Grading Task'
                     : 'Outside Fixed Task Scope'}
                 </span>
               </div>
-              <p style={{ margin: '0.2rem 0', fontStyle: 'italic' }}>
-                &ldquo;{confirmedTranscript}&rdquo;
-              </p>
-              <p style={{ margin: '0.35rem 0 0', color: 'var(--text-secondary)' }}>
-                {scopeAssessment.guidance}
-              </p>
+              <p className="confirmed-quote">&ldquo;{confirmedTranscript}&rdquo;</p>
+              <p className="confirmed-guidance">{scopeAssessment.guidance}</p>
             </div>
           )}
         </div>
 
         {/* Right column: TTS Read Verification Result Aloud */}
-        <div
-          style={{
-            background: 'var(--bg-code)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '0.6rem',
-            padding: '1rem',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginBottom: '0.75rem',
-            }}
-          >
+        <div className="voice-subpanel">
+          <div className="voice-subpanel-header">
             <strong>2. Read Verification Result Aloud (Gnani Timbre v2.5 TTS)</strong>
-            <StatusBadge status={activeRun.overall_status} prefix="Active Run" />
+            <StatusBadge status={activeRun.overall_status} prefix="Active Verdict" />
           </div>
 
-          <p
-            style={{
-              margin: '0 0 0.75rem',
-              fontSize: '0.83rem',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            Synthesizes a concise spoken summary from the actual backend verification report for{' '}
+          <p className="voice-desc">
+            Synthesizes a spoken summary from the stored backend verification report for{' '}
             <code className="mono">{activeRun.implementation_short_label}</code> (
-            <strong>{activeRun.run_label}</strong>). Full check evidence remains on screen.
+            <strong>{activeRun.run_label}</strong>).
           </p>
 
-          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <div className="voice-action-row">
             <button
               type="button"
-              className="btn"
+              className="btn btn-secondary"
               data-testid="read-result-aloud-btn"
               onClick={handleReadResultAloud}
               disabled={!isGnaniConfigured || isSynthesizing}
             >
               {isSynthesizing ? 'Synthesizing Speech...' : 'Read Result Aloud'}
             </button>
-            <span className="mono" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-              Model: timbre-v2.5 • Voice: Kaveri
+            <span className="mono muted-meta">
+              Model: {voiceStatus?.default_tts_model || 'timbre-v2.5'} • Voice:{' '}
+              {voiceStatus?.default_tts_voice || 'Kaveri'}
             </span>
           </div>
 
@@ -660,48 +569,21 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
             <div
               role="alert"
               data-testid="tts-error-message"
-              style={{
-                background: 'var(--fail-bg)',
-                border: '1px solid var(--fail-border)',
-                color: 'var(--fail-text)',
-                borderRadius: '0.45rem',
-                padding: '0.55rem 0.75rem',
-                fontSize: '0.82rem',
-                marginBottom: '0.75rem',
-              }}
+              className="notice-banner notice-error"
             >
               <strong>TTS Error:</strong> {ttsError}
             </div>
           )}
 
           {ttsResult && (
-            <div
-              data-testid="tts-summary-box"
-              style={{
-                background: 'var(--bg-panel)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '0.45rem',
-                padding: '0.75rem 0.85rem',
-                fontSize: '0.83rem',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '0.4rem',
-                }}
-              >
+            <div data-testid="tts-summary-box" className="tts-result-card">
+              <div className="confirmed-transcript-header">
                 <strong>Synthesized Spoken Summary</strong>
                 {ttsResult.overall_status && (
                   <StatusBadge status={ttsResult.overall_status} prefix="Verified Status" />
                 )}
               </div>
-              <p
-                data-testid="tts-summary-text"
-                style={{ margin: '0 0 0.65rem', color: 'var(--text-primary)' }}
-              >
+              <p data-testid="tts-summary-text" className="tts-summary-copy">
                 {ttsResult.summary_text}
               </p>
               <audio
@@ -709,7 +591,7 @@ export function VoicePanel({ voiceStatus, activeRun }: VoicePanelProps) {
                 preload="metadata"
                 data-testid="tts-audio-player"
                 src={`data:${ttsResult.content_type};base64,${ttsResult.audio_base64}`}
-                style={{ width: '100%' }}
+                className="tts-audio-element"
               >
                 Your browser does not support the HTML5 audio element.
               </audio>
